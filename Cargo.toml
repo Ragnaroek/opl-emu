@@ -1,0 +1,16 @@
+[package]
+name = "opl-emu"
+version = "0.1.0"
+edition = "2021"
+description = "OPL Emulator"
+license = "GPL-3.0"
+repository = "https://github.com/Ragnaroek/opl-emu"
+
+[lib]
+name = "opl"
+
+[features]
+sdl = ["dep:sdl2"]
+
+[dependencies]
+sdl2 = { version = "0.37.0", optional = true, default-features = false, features = [] }
