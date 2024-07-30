@@ -52,6 +52,8 @@ static VIBRATO_TABLE: [i8; 8] = [1, 0, 1, 30, -127, -128, -127, -98];
 
 static KSL_SHIFT_TABLE: [u8; 4] = [31, 1, 2, 0];
 
+const MASK_SUSTAIN: u8 = 0x20;
+
 pub struct Chip {
     channels: [Channel; NUM_CHANNELS],
 
@@ -86,15 +88,19 @@ pub struct Operator {
     vol_handler: VolumeHandler,
 
     chan_data: u32,
+    sustain_level: i32,
     total_level: i32,
     volume: i32,
 
     attack_add: u32,
     decay_add: u32,
+    release_add: u32,
 
     rate_zero: u8,
+    reg_20: u8,
     reg_40: u8,
     reg_60: u8,
+    reg_80: u8,
     state: OperatorState,
     ksr: u8,
 }
@@ -105,15 +111,19 @@ impl Operator {
             vol_handler: template_volume_off,
 
             chan_data: 0,
+            sustain_level: ENV_MAX,
             total_level: ENV_MAX,
             volume: ENV_MAX,
 
             attack_add: 0,
             decay_add: 0,
+            release_add: 0,
 
             rate_zero: 1 << (OperatorState::OFF as u8),
+            reg_20: 0,
             reg_40: 0,
             reg_60: 0,
+            reg_80: 0,
             state: OperatorState::OFF,
             ksr: 0,
         }
@@ -125,14 +135,10 @@ impl Operator {
     self->waveAdd = 0;
     self->waveCurrent = 0;
     self->keyOn = 0;
-    self->reg20 = 0;
-    self->reg80 = 0;
     self->regE0 = 0;
     Operator__SetState( self, OFF );
-    self->sustainLevel = ENV_MAX;
     self->currentLevel = ENV_MAX;
     self->volume = ENV_MAX;
-    self->releaseAdd = 0;
     }
     */
 }
@@ -228,7 +234,7 @@ fn init_tables(rate: u32) -> Tables {
         let mut best_add = guess_add;
         let mut best_diff = 1 << 30;
 
-        for x in 0..16 {
+        for _ in 0..16 {
             let mut volume = ENV_MAX;
             let mut samples = 0;
             let mut count = 0;
@@ -351,6 +357,7 @@ impl Chip {
             0x00 => {}
             0x40 | 0x50 => self.regop_write_40(reg, val),
             0x60 | 0x70 => self.regop_write_60(reg, val),
+            0x80 | 0x90 => self.regop_write_80(reg, val),
             0xb0 => {
                 if reg == 0xbd {
                     self.write_bd(val);
@@ -395,6 +402,10 @@ impl Chip {
 
     fn regop_write_60(&mut self, reg: u32, val: u8) {
         self.regop_write(reg, val, operator_write_60);
+    }
+
+    fn regop_write_80(&mut self, reg: u32, val: u8) {
+        self.regop_write(reg, val, operator_write_80);
     }
 
     fn regchan_write_c0(&mut self, reg: u32, val: u8) {
@@ -478,7 +489,7 @@ impl Chip {
 
 // Operators
 
-fn operator_write_40(op: &mut Operator, tables: &Tables, val: u8) {
+fn operator_write_40(op: &mut Operator, _: &Tables, val: u8) {
     if (op.reg_40 ^ val) == 0 {
         return;
     }
@@ -494,6 +505,38 @@ fn operator_write_60(op: &mut Operator, tables: &Tables, val: u8) {
     }
     if (change & 0xf0) != 0 {
         operator_update_attack(op, tables);
+    }
+}
+
+fn operator_write_80(op: &mut Operator, tables: &Tables, val: u8) {
+    let change = op.reg_80 ^ val;
+    if change == 0 {
+        return;
+    }
+    op.reg_80 = change;
+    let mut sustain = val >> 4;
+    sustain |= (sustain + 1) & 0x10;
+    op.sustain_level = (sustain as i32) << (ENV_BITS - 5);
+    if (change & 0x0f) != 0 {
+        operator_update_release(op, tables);
+    }
+}
+
+fn operator_update_release(op: &mut Operator, tables: &Tables) {
+    let rate = op.reg_80 & 0xf;
+    if rate != 0 {
+        let val = (rate << 2) + op.ksr;
+        op.release_add = tables.linear_rates[val as usize];
+        op.rate_zero &= !(1 << OperatorState::RELEASE as u8);
+        if (op.reg_20 & MASK_SUSTAIN) == 0 {
+            op.rate_zero &= !(1 << OperatorState::SUSTAIN as u8);
+        }
+    } else {
+        op.rate_zero |= 1 << OperatorState::RELEASE as u8;
+        op.release_add = 0;
+        if (op.reg_20 & MASK_SUSTAIN) == 0 {
+            op.rate_zero &= 1 << OperatorState::SUSTAIN as u8;
+        }
     }
 }
 
