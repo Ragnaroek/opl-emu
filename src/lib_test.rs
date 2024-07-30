@@ -165,3 +165,25 @@ fn test_table_attack_rates() {
     assert_eq!(attack_rates[74], 134217728);
     assert_eq!(attack_rates[75], 134217728);
 }
+
+#[test]
+fn test_freq_mul() {
+    let chip = Chip::new(TEST_RATE);
+    let freq_mul = &chip.tables.freq_mul;
+    assert_eq!(freq_mul[0], 2048);
+    assert_eq!(freq_mul[1], 4096);
+    assert_eq!(freq_mul[2], 8192);
+    assert_eq!(freq_mul[3], 12288);
+    assert_eq!(freq_mul[4], 16384);
+    assert_eq!(freq_mul[5], 20480);
+    assert_eq!(freq_mul[6], 24576);
+    assert_eq!(freq_mul[7], 28672);
+    assert_eq!(freq_mul[8], 32768);
+    assert_eq!(freq_mul[9], 36864);
+    assert_eq!(freq_mul[10], 40960);
+    assert_eq!(freq_mul[11], 40960);
+    assert_eq!(freq_mul[12], 49152);
+    assert_eq!(freq_mul[13], 49152);
+    assert_eq!(freq_mul[14], 61440);
+    assert_eq!(freq_mul[15], 61440);
+}

@@ -25,7 +25,8 @@ const TREMOLO_TABLE_SIZE: usize = 52;
 
 const NUM_CHANNELS: usize = 9;
 
-const WAVE_BITS: u32 = 14;
+// TODO impl WAVE_PRECISION WAVE_BITS mode
+const WAVE_BITS: u32 = 10;
 const WAVE_SH: u32 = 32 - WAVE_BITS;
 const WAVE_MASK: u32 = (1 << WAVE_SH) - 1;
 
@@ -40,10 +41,12 @@ const ENV_LIMIT: i32 = (12 * 256) >> (3 - ENV_EXTRA);
 const RATE_SH: u32 = 24;
 const RATE_MASK: u32 = (1 << RATE_SH) - 1;
 
+static FREQ_CREATE_TABLE: [u8; 16] = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30];
 static ATTACK_SAMPLES_TABLE: [u8; 13] = [69, 55, 46, 40, 35, 29, 23, 20, 19, 15, 11, 10, 9];
 static ENVELOPE_INCREASE_TABLE: [u8; 13] = [4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32];
 
 const SHIFT_KSLBASE: u32 = 16;
+const SHIFT_KEYCODE: u32 = 24;
 
 //The lower bits are the shift of the operator vibrato value
 //The highest bit is right shifted to generate -1 or 0 for negation
@@ -52,7 +55,9 @@ static VIBRATO_TABLE: [i8; 8] = [1, 0, 1, 30, -127, -128, -127, -98];
 
 static KSL_SHIFT_TABLE: [u8; 4] = [31, 1, 2, 0];
 
+const MASK_KSR: u8 = 0x10;
 const MASK_SUSTAIN: u8 = 0x20;
+const MASK_VIBRATO: u8 = 0x40;
 
 pub struct Chip {
     channels: [Channel; NUM_CHANNELS],
@@ -87,7 +92,11 @@ type VolumeHandler = fn(channel: &Operator);
 pub struct Operator {
     vol_handler: VolumeHandler,
 
+    wave_add: u32,
+
     chan_data: u32,
+    freq_mul: u32,
+    vibrato: u32,
     sustain_level: i32,
     total_level: i32,
     volume: i32,
@@ -102,6 +111,8 @@ pub struct Operator {
     reg_60: u8,
     reg_80: u8,
     state: OperatorState,
+    tremolo_mask: u8,
+    vib_strength: u8,
     ksr: u8,
 }
 
@@ -110,7 +121,11 @@ impl Operator {
         Operator {
             vol_handler: template_volume_off,
 
+            wave_add: 0,
+
             chan_data: 0,
+            freq_mul: 0,
+            vibrato: 0,
             sustain_level: ENV_MAX,
             total_level: ENV_MAX,
             volume: ENV_MAX,
@@ -125,6 +140,8 @@ impl Operator {
             reg_60: 0,
             reg_80: 0,
             state: OperatorState::OFF,
+            tremolo_mask: 0,
+            vib_strength: 0,
             ksr: 0,
         }
     }
@@ -132,7 +149,6 @@ impl Operator {
     static void Operator__Operator(Operator *self) {
     self->freqMul = 0;
     self->waveIndex = 0;
-    self->waveAdd = 0;
     self->waveCurrent = 0;
     self->keyOn = 0;
     self->regE0 = 0;
@@ -205,12 +221,24 @@ struct Tables {
     op_offset_table: [Option<OpOffset>; 64],
     tremolo_table: [u8; TREMOLO_TABLE_SIZE],
 
+    //frequency scales for the different multiplications
+    freq_mul: [u32; 16],
+    //rates for decay and release for rate of this chip
     linear_rates: [u32; 76],
+    //best match attack rates for the rate of this chip
     attack_rates: [u32; 76],
 }
 
 fn init_tables(rate: u32) -> Tables {
     let scale = OPL_RATE / rate as f64;
+
+    // TODO Impl WAVE_PRECISION
+    let mut freq_mul = [0; 16];
+    let freq_scale = (0.5 + scale * (1 << (WAVE_SH - 1 - 10)) as f64) as u32;
+    println!("freq_scale={}, scale={}", freq_scale, scale);
+    for i in 0..16 {
+        freq_mul[i] = freq_scale * FREQ_CREATE_TABLE[i] as u32;
+    }
 
     let mut linear_rates = [0; 76];
     for i in 0..76 {
@@ -315,6 +343,7 @@ fn init_tables(rate: u32) -> Tables {
         chan_offset_table,
         op_offset_table,
         tremolo_table,
+        freq_mul,
         linear_rates,
         attack_rates,
     }
@@ -355,6 +384,7 @@ impl Chip {
         println!("## reg = {:x}, val = {:x}", reg, val);
         match reg & 0xf0 {
             0x00 => {}
+            0x20 | 0x30 => self.regop_write_20(reg, val),
             0x40 | 0x50 => self.regop_write_40(reg, val),
             0x60 | 0x70 => self.regop_write_60(reg, val),
             0x80 | 0x90 => self.regop_write_80(reg, val),
@@ -394,6 +424,10 @@ impl Chip {
             let op = &mut self.channels[offset.chan].operator[offset.op];
             f(op, &self.tables, val);
         }
+    }
+
+    fn regop_write_20(&mut self, reg: u32, val: u8) {
+        self.regop_write(reg, val, operator_write_20);
     }
 
     fn regop_write_40(&mut self, reg: u32, val: u8) {
@@ -489,6 +523,32 @@ impl Chip {
 
 // Operators
 
+fn operator_write_20(op: &mut Operator, tables: &Tables, val: u8) {
+    let change = op.reg_20 ^ val;
+    if change == 0 {
+        return;
+    }
+    op.reg_20 = val;
+    //shift the tremolo bit over the entire register, saved a branch, YES!
+    op.tremolo_mask = val >> 7;
+    op.tremolo_mask &= !((1 << ENV_EXTRA) - 1);
+    //update specific features based on changes
+    if (change & MASK_KSR) != 0 {
+        operator_update_rates(op, tables);
+    }
+    //with sustain enable the volume doesn't change
+    if (op.reg_20 & MASK_SUSTAIN) != 0 || op.release_add == 0 {
+        op.rate_zero |= 1 << OperatorState::SUSTAIN as u8;
+    } else {
+        op.rate_zero &= !(1 << OperatorState::SUSTAIN as u8);
+    }
+    //frequency multiplier or vibrato changed
+    if (change & (0xf | MASK_VIBRATO)) != 0 {
+        op.freq_mul = tables.freq_mul[(val & 0xf) as usize];
+        operator_update_frequency(op, tables);
+    }
+}
+
 fn operator_write_40(op: &mut Operator, _: &Tables, val: u8) {
     if (op.reg_40 ^ val) == 0 {
         return;
@@ -519,6 +579,36 @@ fn operator_write_80(op: &mut Operator, tables: &Tables, val: u8) {
     op.sustain_level = (sustain as i32) << (ENV_BITS - 5);
     if (change & 0x0f) != 0 {
         operator_update_release(op, tables);
+    }
+}
+fn operator_update_rates(op: &mut Operator, tables: &Tables) {
+    let mut new_ksr = ((op.chan_data >> SHIFT_KEYCODE) & 0xff) as u8;
+    if (op.reg_20 & MASK_KSR) == 0 {
+        new_ksr >>= 2;
+    }
+    if op.ksr == new_ksr {
+        return;
+    }
+    op.ksr = new_ksr;
+
+    operator_update_attack(op, tables);
+    operator_update_decay(op, tables);
+    operator_update_release(op, tables);
+}
+
+fn operator_update_frequency(op: &mut Operator, tables: &Tables) {
+    let freq = op.chan_data & ((1 << 10) - 1);
+    let block = (op.chan_data >> 10) & 0xff;
+
+    // TODO Impl WAVE_PRECSION mode here
+    op.wave_add = (freq << block) * op.freq_mul;
+    if (op.reg_20 & MASK_VIBRATO) != 0 {
+        op.vib_strength = (freq >> 7) as u8;
+        // TODO Impl WAVE_PRECSION mode also here
+        op.vibrato = ((op.vib_strength as u32) << block) * op.freq_mul;
+    } else {
+        op.vib_strength = 0;
+        op.vibrato = 0;
     }
 }
 
