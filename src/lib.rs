@@ -5,6 +5,7 @@
 mod lib_test;
 
 use core::array::from_fn;
+use std::f64::consts::PI;
 
 #[cfg(feature = "sdl")]
 pub mod backend_sdl;
@@ -45,6 +46,15 @@ static FREQ_CREATE_TABLE: [u8; 16] = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20,
 static ATTACK_SAMPLES_TABLE: [u8; 13] = [69, 55, 46, 40, 35, 29, 23, 20, 19, 15, 11, 10, 9];
 static ENVELOPE_INCREASE_TABLE: [u8; 13] = [4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32];
 
+//distance into WaveTable the wave starts
+static WAVE_BASE_TABLE: [usize; 8] = [0x000, 0x200, 0x200, 0x800, 0xa00, 0xc00, 0x100, 0x400];
+
+//mask the counter with this
+static WAVE_MASK_TABLE: [u16; 8] = [1023, 1023, 511, 511, 1023, 1023, 512, 1023];
+
+//where to start the counter on at keyon
+static WAVE_START_TABLE: [u16; 8] = [512, 0, 0, 0, 0, 512, 512, 256];
+
 const SHIFT_KSLBASE: u32 = 16;
 const SHIFT_KEYCODE: u32 = 24;
 
@@ -74,7 +84,16 @@ pub struct Chip {
     tremolo_value: u8,
     vibrato_strength: u8,
     tremolo_strength: u8,
+
+    wave_form_mask: u8,
+    opl3_active: bool,
+
     tables: Tables,
+}
+
+pub struct ChipValues {
+    wave_form_mask: u8,
+    opl3_active: bool,
 }
 
 #[repr(u8)]
@@ -92,6 +111,10 @@ type VolumeHandler = fn(channel: &Operator);
 pub struct Operator {
     vol_handler: VolumeHandler,
 
+    // TODO #if (DBOPL_WAVE == WAVE_HANDLER) ?
+    wave_base: i16,
+    wave_mask: u32,
+    wave_start: u32,
     wave_add: u32,
 
     chan_data: u32,
@@ -106,10 +129,12 @@ pub struct Operator {
     release_add: u32,
 
     rate_zero: u8,
+    //registers, also used to check for changes
     reg_20: u8,
     reg_40: u8,
     reg_60: u8,
     reg_80: u8,
+    reg_e0: u8,
     state: OperatorState,
     tremolo_mask: u8,
     vib_strength: u8,
@@ -121,6 +146,9 @@ impl Operator {
         Operator {
             vol_handler: template_volume_off,
 
+            wave_base: 0,
+            wave_mask: 0,
+            wave_start: 0,
             wave_add: 0,
 
             chan_data: 0,
@@ -139,6 +167,7 @@ impl Operator {
             reg_40: 0,
             reg_60: 0,
             reg_80: 0,
+            reg_e0: 0,
             state: OperatorState::OFF,
             tremolo_mask: 0,
             vib_strength: 0,
@@ -151,7 +180,6 @@ impl Operator {
     self->waveIndex = 0;
     self->waveCurrent = 0;
     self->keyOn = 0;
-    self->regE0 = 0;
     Operator__SetState( self, OFF );
     self->currentLevel = ENV_MAX;
     self->volume = ENV_MAX;
@@ -227,9 +255,50 @@ struct Tables {
     linear_rates: [u32; 76],
     //best match attack rates for the rate of this chip
     attack_rates: [u32; 76],
+
+    //Layout of the waveform table in 512 entry intervals
+    //With overlapping waves we reduce the table to half it's size
+    //
+    //	|    |//\\|____|WAV7|//__|/\  |____|/\/\|
+    //	|\\//|    |    |WAV7|    |  \/|    |    |
+    //	|06  |0126|17  |7   |3   |4   |4 5 |5   |
+    //
+    //6 is just 0 shifted and masked
+    wave_table: [i16; 8 * 512],
 }
 
 fn init_tables(rate: u32) -> Tables {
+    let mut wave_table = [0; 8 * 512];
+    //sine Wave Base
+    for i in 0..512 {
+        wave_table[0x0200 + i] = (((i as f64 + 0.5) * (PI / 512.0)).sin() * 4084.0) as i16;
+        wave_table[0x0000 + i] = -wave_table[0x0200 + i];
+    }
+    for i in 0..256 {
+        wave_table[0x0700 + i] = (0.5
+            + ((2.0f64).powf(-1.0 + (255.0 - i as f64 * 8.0) * (1.0 / 256.0))) * 4085.0)
+            as i16;
+        wave_table[0x6ff - i] = -wave_table[0x0700 + i];
+    }
+    //	|    |//\\|____|WAV7|//__|/\  |____|/\/\|
+    //	|\\//|    |    |WAV7|    |  \/|    |    |
+    //	|06  |0126|27  |7   |3   |4   |4 5 |5   |
+    for i in 0..256 {
+        //fill silence gaps
+        wave_table[0x400 + i] = wave_table[0];
+        wave_table[0x500 + i] = wave_table[0];
+        wave_table[0x900 + i] = wave_table[0];
+        wave_table[0xc00 + i] = wave_table[0];
+        wave_table[0xd00 + i] = wave_table[0];
+        //replicate sines in other pieces
+        wave_table[0x800 + i] = wave_table[0x200 + i];
+        //double speed sines
+        wave_table[0xa00 + i] = wave_table[0x200 + i * 2];
+        wave_table[0xb00 + i] = wave_table[0x000 + i * 2];
+        wave_table[0xe00 + i] = wave_table[0x200 + i * 2];
+        wave_table[0xf00 + i] = wave_table[0x200 + i * 2];
+    }
+
     let scale = OPL_RATE / rate as f64;
 
     // TODO Impl WAVE_PRECISION
@@ -346,6 +415,7 @@ fn init_tables(rate: u32) -> Tables {
         freq_mul,
         linear_rates,
         attack_rates,
+        wave_table,
     }
 }
 
@@ -376,6 +446,8 @@ impl Chip {
             tremolo_value: 0,
             vibrato_strength: 0,
             tremolo_strength: 0,
+            wave_form_mask: 0,
+            opl3_active: false,
             tables: init_tables(rate),
         }
     }
@@ -396,6 +468,7 @@ impl Chip {
                 }
             }
             0xc0 => self.regchan_write_c0(reg, val),
+            0xe0 | 0xf0 => self.regop_write_e0(reg, val),
             _ => todo!("reg {:x} not implemented", reg),
         }
     }
@@ -417,12 +490,16 @@ impl Chip {
         &mut self,
         reg: u32,
         val: u8,
-        f: fn(op: &mut Operator, tables: &Tables, val: u8),
+        f: fn(op: &mut Operator, tables: &Tables, chip: &ChipValues, val: u8),
     ) {
         let ix = ((reg >> 3) & 0x20) | (reg & 0x1f);
         if let Some(offset) = &self.tables.op_offset_table[ix as usize] {
             let op = &mut self.channels[offset.chan].operator[offset.op];
-            f(op, &self.tables, val);
+            let chip_values = ChipValues {
+                wave_form_mask: self.wave_form_mask,
+                opl3_active: self.opl3_active,
+            };
+            f(op, &self.tables, &chip_values, val);
         }
     }
 
@@ -440,6 +517,10 @@ impl Chip {
 
     fn regop_write_80(&mut self, reg: u32, val: u8) {
         self.regop_write(reg, val, operator_write_80);
+    }
+
+    fn regop_write_e0(&mut self, reg: u32, val: u8) {
+        self.regop_write(reg, val, operator_write_e0);
     }
 
     fn regchan_write_c0(&mut self, reg: u32, val: u8) {
@@ -523,7 +604,7 @@ impl Chip {
 
 // Operators
 
-fn operator_write_20(op: &mut Operator, tables: &Tables, val: u8) {
+fn operator_write_20(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8) {
     let change = op.reg_20 ^ val;
     if change == 0 {
         return;
@@ -549,7 +630,7 @@ fn operator_write_20(op: &mut Operator, tables: &Tables, val: u8) {
     }
 }
 
-fn operator_write_40(op: &mut Operator, _: &Tables, val: u8) {
+fn operator_write_40(op: &mut Operator, _: &Tables, _: &ChipValues, val: u8) {
     if (op.reg_40 ^ val) == 0 {
         return;
     }
@@ -557,7 +638,7 @@ fn operator_write_40(op: &mut Operator, _: &Tables, val: u8) {
     operator_update_attenuation(op);
 }
 
-fn operator_write_60(op: &mut Operator, tables: &Tables, val: u8) {
+fn operator_write_60(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8) {
     let change = op.reg_60 ^ val;
     op.reg_60 = val;
     if (change & 0x0f) != 0 {
@@ -568,7 +649,7 @@ fn operator_write_60(op: &mut Operator, tables: &Tables, val: u8) {
     }
 }
 
-fn operator_write_80(op: &mut Operator, tables: &Tables, val: u8) {
+fn operator_write_80(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8) {
     let change = op.reg_80 ^ val;
     if change == 0 {
         return;
@@ -581,6 +662,22 @@ fn operator_write_80(op: &mut Operator, tables: &Tables, val: u8) {
         operator_update_release(op, tables);
     }
 }
+
+fn operator_write_e0(op: &mut Operator, tables: &Tables, chip: &ChipValues, val: u8) {
+    if (op.reg_e0 ^ val) == 0 {
+        return;
+    }
+
+    //in opl3 mode you can always selet 7 waveforms regardless of waveformselect
+    let wave_form =
+        (val & ((0x03 & chip.wave_form_mask) | (0x7 & chip.opl3_active as u8))) as usize;
+    op.reg_e0 = val;
+    // TODO #if( DBOPL_WAVE == WAVE_HANDLER ) ?
+    op.wave_base = tables.wave_table[WAVE_BASE_TABLE[wave_form]];
+    op.wave_start = (WAVE_START_TABLE[wave_form] as u32) << WAVE_SH;
+    op.wave_mask = WAVE_MASK_TABLE[wave_form] as u32;
+}
+
 fn operator_update_rates(op: &mut Operator, tables: &Tables) {
     let mut new_ksr = ((op.chan_data >> SHIFT_KEYCODE) & 0xff) as u8;
     if (op.reg_20 & MASK_KSR) == 0 {
@@ -596,7 +693,7 @@ fn operator_update_rates(op: &mut Operator, tables: &Tables) {
     operator_update_release(op, tables);
 }
 
-fn operator_update_frequency(op: &mut Operator, tables: &Tables) {
+fn operator_update_frequency(op: &mut Operator, _: &Tables) {
     let freq = op.chan_data & ((1 << 10) - 1);
     let block = (op.chan_data >> 10) & 0xff;
 
