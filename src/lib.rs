@@ -42,6 +42,12 @@ const ENV_LIMIT: i32 = (12 * 256) >> (3 - ENV_EXTRA);
 const RATE_SH: u32 = 24;
 const RATE_MASK: u32 = (1 << RATE_SH) - 1;
 
+//how much to substract from the base value for the final attenuation
+static KSL_CREATE_TABLE: [u8; 16] = [
+    //0 will always be be lower than 7 * 8
+    64, 32, 24, 19, 16, 12, 11, 10, 8, 6, 5, 4, 3, 2, 1, 0,
+];
+
 static FREQ_CREATE_TABLE: [u8; 16] = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30];
 static ATTACK_SAMPLES_TABLE: [u8; 13] = [69, 55, 46, 40, 35, 29, 23, 20, 19, 15, 11, 10, 9];
 static ENVELOPE_INCREASE_TABLE: [u8; 13] = [4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32];
@@ -69,6 +75,14 @@ const MASK_KSR: u8 = 0x10;
 const MASK_SUSTAIN: u8 = 0x20;
 const MASK_VIBRATO: u8 = 0x40;
 
+static VOLUME_HANDLER_TABLE: [VolumeHandler; 5] = [
+    template_volume_off,
+    template_volume_release,
+    template_volume_sustain,
+    template_volume_decay,
+    template_volume_attack,
+];
+
 pub struct Chip {
     channels: [Channel; NUM_CHANNELS],
 
@@ -76,6 +90,8 @@ pub struct Chip {
     lfo_counter: u32,
     lfo_add: u32,
 
+    reg_104: u8,
+    reg_08: u8,
     reg_bd: u8,
     vibrato_index: u8,
     tremolo_index: u8,
@@ -97,7 +113,7 @@ pub struct ChipValues {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 enum OperatorState {
     OFF,
     RELEASE,
@@ -116,6 +132,7 @@ pub struct Operator {
     wave_mask: u32,
     wave_start: u32,
     wave_add: u32,
+    wave_index: u32,
 
     chan_data: u32,
     freq_mul: u32,
@@ -127,8 +144,10 @@ pub struct Operator {
     attack_add: u32,
     decay_add: u32,
     release_add: u32,
+    rate_index: u32,
 
     rate_zero: u8,
+    key_on: u8,
     //registers, also used to check for changes
     reg_20: u8,
     reg_40: u8,
@@ -150,6 +169,7 @@ impl Operator {
             wave_mask: 0,
             wave_start: 0,
             wave_add: 0,
+            wave_index: 0,
 
             chan_data: 0,
             freq_mul: 0,
@@ -161,8 +181,10 @@ impl Operator {
             attack_add: 0,
             decay_add: 0,
             release_add: 0,
+            rate_index: 0,
 
             rate_zero: 1 << (OperatorState::OFF as u8),
+            key_on: 0,
             reg_20: 0,
             reg_40: 0,
             reg_60: 0,
@@ -179,12 +201,36 @@ impl Operator {
     self->freqMul = 0;
     self->waveIndex = 0;
     self->waveCurrent = 0;
-    self->keyOn = 0;
     Operator__SetState( self, OFF );
     self->currentLevel = ENV_MAX;
     self->volume = ENV_MAX;
     }
     */
+
+    fn key_on(&mut self, mask: u8) {
+        if self.key_on == 0 {
+            //Restart the frequency generator
+            // TODO handle #if( DBOPL_WAVE > WAVE_HANDLER ) else case
+            self.wave_index = self.wave_start;
+            self.rate_index = 0;
+            self.set_state(OperatorState::ATTACK);
+        }
+        self.key_on |= mask;
+    }
+
+    fn key_off(&mut self, mask: u8) {
+        self.key_on &= !mask;
+        if self.key_on == 0 {
+            if self.state != OperatorState::OFF {
+                self.set_state(OperatorState::RELEASE);
+            }
+        };
+    }
+
+    fn set_state(&mut self, s: OperatorState) {
+        self.state = s;
+        self.vol_handler = VOLUME_HANDLER_TABLE[s as usize];
+    }
 }
 
 #[derive(Debug)]
@@ -209,9 +255,11 @@ type SynthHandler =
 pub struct Channel {
     operator: [Operator; 2],
     synth_handler: SynthHandler,
-    old: [i32; 2],
+    chan_data: u32, //Frequency/octave and derived values
+    old: [i32; 2],  //Old data for feedback
 
     feedback: u8,
+    reg_b0: u8,
     reg_c0: u8,
 
     //this should correspond with reg104, bit 6 indicates a Percussion channel, bit 7 indicates a silent channel
@@ -222,19 +270,42 @@ impl Channel {
     pub fn new() -> Channel {
         Channel {
             operator: [Operator::new(), Operator::new()],
+            chan_data: 0,
             old: [0, 0],
             feedback: 31,
+            reg_b0: 0,
             reg_c0: 0,
             four_mask: 0,
             synth_handler: channel_block_template_sm2fm,
         }
 
         /*
-        self->chanData = 0;
-        self->regB0 = 0;
         self->maskLeft = -1;
         self->maskRight = -1;
         */
+    }
+
+    pub fn op(&mut self, ix: usize) -> &mut Operator {
+        &mut self.operator[ix]
+    }
+
+    fn set_chan_data(&mut self, data: u32) {
+        let change = self.chan_data ^ data;
+        self.chan_data = data;
+        self.op(0).chan_data = data;
+        self.op(1).chan_data = data;
+        //since a frequency update triggered this, always update frequency
+        operator_update_frequency(self.op(0));
+        operator_update_frequency(self.op(1));
+
+        if (change & (0xff << SHIFT_KSLBASE)) != 0 {
+            operator_update_attenuation(self.op(0));
+            operator_update_attenuation(self.op(1));
+        }
+        if (change & (0xff << SHIFT_KEYCODE)) != 0 {
+            operator_update_attenuation(self.op(0));
+            operator_update_attenuation(self.op(1));
+        }
     }
 }
 
@@ -265,9 +336,10 @@ struct Tables {
     //
     //6 is just 0 shifted and masked
     wave_table: [i16; 8 * 512],
+    ksl_table: [u8; 8 * 16],
 }
 
-fn init_tables(rate: u32) -> Tables {
+fn init_tables(scale: f64) -> Tables {
     let mut wave_table = [0; 8 * 512];
     //sine Wave Base
     for i in 0..512 {
@@ -298,10 +370,22 @@ fn init_tables(rate: u32) -> Tables {
         wave_table[0xe00 + i] = wave_table[0x200 + i * 2];
         wave_table[0xf00 + i] = wave_table[0x200 + i * 2];
     }
-
-    let scale = OPL_RATE / rate as f64;
-
     // TODO Impl WAVE_PRECISION
+
+    //create the ksl table
+    let mut ksl_table = [0; 8 * 16];
+    for oct in 0..8 {
+        let base = oct * 8;
+        for i in 0..16 {
+            let mut val = base as i32 - KSL_CREATE_TABLE[i] as i32;
+            if val < 0 {
+                val = 0;
+            }
+            //*4 for the final range to match attenuation range
+            ksl_table[oct as usize * 16 + i] = (val * 4) as u8;
+        }
+    }
+
     let mut freq_mul = [0; 16];
     let freq_scale = (0.5 + scale * (1 << (WAVE_SH - 1 - 10)) as f64) as u32;
     println!("freq_scale={}, scale={}", freq_scale, scale);
@@ -416,6 +500,7 @@ fn init_tables(rate: u32) -> Tables {
         linear_rates,
         attack_rates,
         wave_table,
+        ksl_table,
     }
 }
 
@@ -434,10 +519,13 @@ fn envelope_select(val: u8) -> (u8, u8) {
 impl Chip {
     pub fn new(rate: u32) -> Chip {
         let channels = from_fn(|_| Channel::new());
+        let scale = OPL_RATE / rate as f64;
         Chip {
             channels,
             lfo_counter: 0,
-            lfo_add: 0,
+            lfo_add: (0.5 + scale * (1 << LFO_SH) as f64) as u32,
+            reg_104: 0,
+            reg_08: 0,
             reg_bd: 0,
             vibrato_index: 0,
             tremolo_index: 0,
@@ -448,7 +536,7 @@ impl Chip {
             tremolo_strength: 0,
             wave_form_mask: 0,
             opl3_active: false,
-            tables: init_tables(rate),
+            tables: init_tables(scale),
         }
     }
 
@@ -464,7 +552,7 @@ impl Chip {
                 if reg == 0xbd {
                     self.write_bd(val);
                 } else {
-                    todo!("REGCHAN(WriteB0)")
+                    self.regchan_write_b0(reg, val);
                 }
             }
             0xc0 => self.regchan_write_c0(reg, val),
@@ -521,6 +609,52 @@ impl Chip {
 
     fn regop_write_e0(&mut self, reg: u32, val: u8) {
         self.regop_write(reg, val, operator_write_e0);
+    }
+
+    fn regchan_write_b0(&mut self, reg: u32, val: u8) {
+        let ix = ((reg >> 4) & 0x10) | (reg & 0xf);
+        let offset = self.tables.chan_offset_table[ix as usize];
+        self.channel_write_b0(offset, val);
+    }
+
+    fn channel_write_b0(&mut self, offset: usize, val: u8) {
+        let channels = if offset == 8 {
+            &mut self.channels[offset..(offset + 1)]
+        } else {
+            &mut self.channels[offset..=(offset + 1)]
+        };
+        let four_op = self.reg_104 & if self.opl3_active { 1 } else { 0 } & channels[0].four_mask;
+        //don't handle writes to silent fourop channels
+        if four_op > 0x80 {
+            return;
+        }
+        let change = (channels[0].chan_data ^ ((val as u32) << 8)) & 0x1f00;
+        if change != 0 {
+            channels[0].chan_data ^= change;
+            channel_update_frequency(channels, four_op, self.reg_08, &self.tables);
+        }
+
+        //check for a change in the keyon/off state
+        if (!((val ^ channels[0].reg_b0) & 0x20)) != 0 {
+            return;
+        }
+
+        channels[0].reg_b0 = val;
+        if (val & 0x20) != 0 {
+            channels[0].op(0).key_on(0x1);
+            channels[0].op(1).key_on(0x1);
+            if (four_op & 0x3f) != 0 {
+                channels[1].op(0).key_on(1);
+                channels[1].op(1).key_on(1);
+            }
+        } else {
+            channels[0].op(0).key_off(0x1);
+            channels[0].op(1).key_off(0x1);
+            if (four_op & 0x3f) != 0 {
+                channels[1].op(0).key_off(1);
+                channels[1].op(1).key_off(1);
+            }
+        }
     }
 
     fn regchan_write_c0(&mut self, reg: u32, val: u8) {
@@ -602,6 +736,24 @@ impl Chip {
     }
 }
 
+fn channel_update_frequency(channels: &mut [Channel], four_op: u8, reg_08: u8, tables: &Tables) {
+    //extract the frequency bits
+    let mut data = channels[0].chan_data & 0xffff;
+    let ksl_base = tables.ksl_table[(data >> 6) as usize];
+    let mut key_code = (data & 0x1c00) >> 9;
+    if (reg_08 & 0x40) != 0 {
+        key_code |= (data & 0x100) >> 8; /* notesel == 1 */
+    } else {
+        key_code |= (data & 0x200) >> 9; /* notesel == 0 */
+    }
+    //add the keycode and ksl into the highest bits of chanData
+    data |= (key_code << SHIFT_KEYCODE) | ((ksl_base as u32) << SHIFT_KSLBASE);
+    channels[0].set_chan_data(data);
+    if (four_op & 0x3f) != 0 {
+        channels[1].set_chan_data(data);
+    }
+}
+
 // Operators
 
 fn operator_write_20(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8) {
@@ -626,7 +778,7 @@ fn operator_write_20(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8
     //frequency multiplier or vibrato changed
     if (change & (0xf | MASK_VIBRATO)) != 0 {
         op.freq_mul = tables.freq_mul[(val & 0xf) as usize];
-        operator_update_frequency(op, tables);
+        operator_update_frequency(op);
     }
 }
 
@@ -693,7 +845,7 @@ fn operator_update_rates(op: &mut Operator, tables: &Tables) {
     operator_update_release(op, tables);
 }
 
-fn operator_update_frequency(op: &mut Operator, _: &Tables) {
+fn operator_update_frequency(op: &mut Operator) {
     let freq = op.chan_data & ((1 << 10) - 1);
     let block = (op.chan_data >> 10) & 0xff;
 
@@ -824,6 +976,22 @@ fn channel_block_template(
 
 fn template_volume_off(op: &Operator) {
     template_volume(op, OperatorState::OFF)
+}
+
+fn template_volume_release(op: &Operator) {
+    template_volume(op, OperatorState::RELEASE)
+}
+
+fn template_volume_sustain(op: &Operator) {
+    template_volume(op, OperatorState::SUSTAIN)
+}
+
+fn template_volume_attack(op: &Operator) {
+    template_volume(op, OperatorState::ATTACK)
+}
+
+fn template_volume_decay(op: &Operator) {
+    template_volume(op, OperatorState::DECAY)
 }
 
 fn template_volume(op: &Operator, state: OperatorState) {

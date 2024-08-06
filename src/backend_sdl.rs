@@ -93,6 +93,7 @@ impl AudioCallback for OPLCallback {
     type Channel = i16;
 
     fn callback(&mut self, out: &mut [i16]) {
+        println!("### callback");
         let stereo_len = out.len() >> 1;
         let mut samples_len = stereo_len as u32 >> 1;
         let mut out_offset = 0;
