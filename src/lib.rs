@@ -548,6 +548,7 @@ impl Chip {
             0x40 | 0x50 => self.regop_write_40(reg, val),
             0x60 | 0x70 => self.regop_write_60(reg, val),
             0x80 | 0x90 => self.regop_write_80(reg, val),
+            0xa0 => self.regchan_write_a0(reg, val),
             0xb0 => {
                 if reg == 0xbd {
                     self.write_bd(val);
@@ -609,6 +610,30 @@ impl Chip {
 
     fn regop_write_e0(&mut self, reg: u32, val: u8) {
         self.regop_write(reg, val, operator_write_e0);
+    }
+
+    fn regchan_write_a0(&mut self, reg: u32, val: u8) {
+        let ix = ((reg >> 4) & 0x10) | (reg & 0xf);
+        let offset = self.tables.chan_offset_table[ix as usize];
+        self.channel_write_a0(offset, val);
+    }
+
+    fn channel_write_a0(&mut self, offset: usize, val: u8) {
+        let channels = if offset == 8 {
+            &mut self.channels[offset..(offset + 1)]
+        } else {
+            &mut self.channels[offset..=(offset + 1)]
+        };
+        let four_op = self.reg_104 & if self.opl3_active { 1 } else { 0 } & channels[0].four_mask;
+        //don't handle writes to silent fourop channels
+        if four_op > 0x80 {
+            return;
+        }
+        let change = (channels[0].chan_data ^ val as u32) & 0xff;
+        if change != 0 {
+            channels[0].chan_data ^= change;
+            channel_update_frequency(channels, four_op, self.reg_08, &self.tables);
+        }
     }
 
     fn regchan_write_b0(&mut self, reg: u32, val: u8) {
