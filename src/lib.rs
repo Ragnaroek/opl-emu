@@ -7,6 +7,8 @@ mod lib_test;
 use core::array::from_fn;
 use std::f64::consts::PI;
 
+use sdl2::libc::ATTR_VOL_UUID;
+
 #[cfg(feature = "sdl")]
 pub mod backend_sdl;
 
@@ -24,7 +26,7 @@ const OPL_RATE: f64 = 14318180.0 / 288.0;
 
 const TREMOLO_TABLE_SIZE: usize = 52;
 
-const NUM_CHANNELS: usize = 9;
+const NUM_CHANNELS: usize = 18;
 
 // TODO impl WAVE_PRECISION WAVE_BITS mode
 const WAVE_BITS: u32 = 10;
@@ -35,6 +37,7 @@ const LFO_SH: u32 = WAVE_SH - 10;
 const LFO_MAX: u32 = 256 << LFO_SH;
 
 const ENV_BITS: i32 = 9;
+const ENV_MIN: i32 = 0;
 const ENV_EXTRA: i32 = ENV_BITS - 9;
 const ENV_MAX: i32 = 511 << ENV_EXTRA;
 const ENV_LIMIT: i32 = (12 * 256) >> (3 - ENV_EXTRA);
@@ -42,6 +45,7 @@ const ENV_LIMIT: i32 = (12 * 256) >> (3 - ENV_EXTRA);
 const RATE_SH: u32 = 24;
 const RATE_MASK: u32 = (1 << RATE_SH) - 1;
 
+const MUL_SH: i16 = 16;
 //how much to substract from the base value for the final attenuation
 static KSL_CREATE_TABLE: [u8; 16] = [
     //0 will always be be lower than 7 * 8
@@ -105,6 +109,8 @@ pub struct Chip {
     opl3_active: bool,
 
     tables: Tables,
+    //debug
+    call_count: u32,
 }
 
 pub struct ChipValues {
@@ -122,23 +128,25 @@ enum OperatorState {
     ATTACK,
 }
 
-type VolumeHandler = fn(channel: &Operator);
+type VolumeHandler = fn(channel: &mut Operator) -> i32;
 
 pub struct Operator {
     vol_handler: VolumeHandler,
 
     // TODO #if (DBOPL_WAVE == WAVE_HANDLER) ?
-    wave_base: i16,
+    wave_base: usize,
     wave_mask: u32,
     wave_start: u32,
-    wave_add: u32,
     wave_index: u32,
+    wave_add: u32,
+    wave_current: u32,
 
     chan_data: u32,
     freq_mul: u32,
     vibrato: u32,
     sustain_level: i32,
     total_level: i32,
+    current_level: i32,
     volume: i32,
 
     attack_add: u32,
@@ -170,12 +178,14 @@ impl Operator {
             wave_start: 0,
             wave_add: 0,
             wave_index: 0,
+            wave_current: 0,
 
             chan_data: 0,
             freq_mul: 0,
             vibrato: 0,
             sustain_level: ENV_MAX,
             total_level: ENV_MAX,
+            current_level: ENV_MAX,
             volume: ENV_MAX,
 
             attack_add: 0,
@@ -200,9 +210,7 @@ impl Operator {
     static void Operator__Operator(Operator *self) {
     self->freqMul = 0;
     self->waveIndex = 0;
-    self->waveCurrent = 0;
     Operator__SetState( self, OFF );
-    self->currentLevel = ENV_MAX;
     self->volume = ENV_MAX;
     }
     */
@@ -233,7 +241,7 @@ impl Operator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd)]
 enum SynthMode {
     SM2AM,
     SM2FM,
@@ -249,8 +257,13 @@ enum SynthMode {
     SM3Percussion,
 }
 
-type SynthHandler =
-    fn(channel: &mut Channel, samples: usize, output: &mut Vec<i32>, output_offset: usize) -> usize;
+type SynthHandler = fn(
+    chip: &mut Chip,
+    channel_ix: usize,
+    samples: usize,
+    output: &mut Vec<i32>,
+    output_offset: usize,
+) -> usize;
 
 pub struct Channel {
     operator: [Operator; 2],
@@ -264,6 +277,8 @@ pub struct Channel {
 
     //this should correspond with reg104, bit 6 indicates a Percussion channel, bit 7 indicates a silent channel
     four_mask: u8,
+    mask_left: i8, //sign extended values for both channel's panning
+    mask_right: i8,
 }
 
 impl Channel {
@@ -276,13 +291,10 @@ impl Channel {
             reg_b0: 0,
             reg_c0: 0,
             four_mask: 0,
+            mask_left: -1,
+            mask_right: -1,
             synth_handler: channel_block_template_sm2fm,
         }
-
-        /*
-        self->maskLeft = -1;
-        self->maskRight = -1;
-        */
     }
 
     pub fn op(&mut self, ix: usize) -> &mut Operator {
@@ -290,6 +302,7 @@ impl Channel {
     }
 
     fn set_chan_data(&mut self, data: u32) {
+        println!("#set_chan_data");
         let change = self.chan_data ^ data;
         self.chan_data = data;
         self.op(0).chan_data = data;
@@ -309,13 +322,14 @@ impl Channel {
     }
 }
 
+#[derive(PartialEq, Debug)]
 struct OpOffset {
     chan: usize,
     op: usize,
 }
 
 struct Tables {
-    chan_offset_table: [usize; NUM_CHANNELS],
+    chan_offset_table: [Option<usize>; 32],
     // Stores None, 0 or 1 for the channel offset to apply
     op_offset_table: [Option<OpOffset>; 64],
     tremolo_table: [u8; TREMOLO_TABLE_SIZE],
@@ -336,10 +350,19 @@ struct Tables {
     //
     //6 is just 0 shifted and masked
     wave_table: [i16; 8 * 512],
+    mul_table: [u16; 384],
     ksl_table: [u8; 8 * 16],
 }
 
 fn init_tables(scale: f64) -> Tables {
+    let mut mul_table = [0; 384];
+    for i in 0..384 {
+        let s = (i * 8) as f64;
+        let p = 2.0_f64.powf(-1.0 + (255.0 - s) * (1.0 / 256.0));
+        let val = 0.5 + p * (1 << MUL_SH) as f64;
+        mul_table[i] = val as u16;
+    }
+
     let mut wave_table = [0; 8 * 512];
     //sine Wave Base
     for i in 0..512 {
@@ -458,14 +481,20 @@ fn init_tables(scale: f64) -> Tables {
         attack_rates[i] = 8 << RATE_SH;
     }
 
-    let mut chan_offset_table = [0; 9];
-    for i in 0..NUM_CHANNELS {
+    let mut chan_offset_table = [None; 32];
+    for i in 0..32 {
         let mut index = i & 0xf;
+        if index >= 9 {
+            continue;
+        }
         //Make sure the four op channels follow eachother
         if index < 6 {
             index = (index % 3) * 2 + (index / 3);
         }
-        chan_offset_table[i] = index;
+        if i >= 16 {
+            index += 9;
+        }
+        chan_offset_table[i] = Some(index);
     }
 
     let op_offset_table = from_fn(|i| {
@@ -478,10 +507,15 @@ fn init_tables(scale: f64) -> Tables {
         }
 
         let op_num = (i % 8) / 3;
-        Some(OpOffset {
-            chan: ch_num,
-            op: op_num,
-        })
+
+        if let Some(chan_offset) = chan_offset_table[ch_num] {
+            Some(OpOffset {
+                chan: chan_offset,
+                op: op_num,
+            })
+        } else {
+            None
+        }
     });
 
     // create the Tremolo table, just increase and decrease a triangle wave
@@ -501,6 +535,7 @@ fn init_tables(scale: f64) -> Tables {
         attack_rates,
         wave_table,
         ksl_table,
+        mul_table,
     }
 }
 
@@ -517,10 +552,11 @@ fn envelope_select(val: u8) -> (u8, u8) {
 }
 
 impl Chip {
+    // creates a new Chip and set it up to be used.
     pub fn new(rate: u32) -> Chip {
         let channels = from_fn(|_| Channel::new());
         let scale = OPL_RATE / rate as f64;
-        Chip {
+        let mut chip = Chip {
             channels,
             lfo_counter: 0,
             lfo_add: (0.5 + scale * (1 << LFO_SH) as f64) as u32,
@@ -537,13 +573,76 @@ impl Chip {
             wave_form_mask: 0,
             opl3_active: false,
             tables: init_tables(scale),
+            call_count: 0,
+        };
+
+        //setup
+        chip.channels[0].four_mask = 0x00 | (1 << 0);
+        chip.channels[1].four_mask = 0x80 | (1 << 0);
+        chip.channels[2].four_mask = 0x00 | (1 << 1);
+        chip.channels[3].four_mask = 0x80 | (1 << 1);
+        chip.channels[4].four_mask = 0x00 | (1 << 2);
+        chip.channels[5].four_mask = 0x80 | (1 << 2);
+
+        chip.channels[9].four_mask = 0x00 | (1 << 3);
+        chip.channels[10].four_mask = 0x80 | (1 << 3);
+        chip.channels[11].four_mask = 0x00 | (1 << 4);
+        chip.channels[12].four_mask = 0x80 | (1 << 4);
+        chip.channels[13].four_mask = 0x00 | (1 << 5);
+        chip.channels[14].four_mask = 0x80 | (1 << 5);
+
+        //mark the percussion channels
+        chip.channels[6].four_mask = 0x40;
+        chip.channels[7].four_mask = 0x40;
+        chip.channels[8].four_mask = 0x40;
+
+        //clear Everything in opl3 mode
+        chip.write_reg(0x105, 0x1);
+        for i in 0..512 {
+            if i == 0x105 {
+                continue;
+            }
+            chip.write_reg(i, 0xff);
+            chip.write_reg(i, 0x00);
         }
+        chip.write_reg(0x105, 0x00);
+        //clear everything in opl2 mode
+        for i in 0..255 {
+            chip.write_reg(i, 0xff);
+            chip.write_reg(i, 0x00);
+        }
+        chip
     }
 
     pub fn write_reg(&mut self, reg: u32, val: u8) {
         println!("## reg = {:x}, val = {:x}", reg, val);
         match reg & 0xf0 {
-            0x00 => {}
+            0x00 => {
+                if reg == 0x01 {
+                    self.wave_form_mask = if (val & 0x20) != 0 { 0x7 } else { 0x0 };
+                } else if reg == 0x104 {
+                    //only detect changes in lowest 6 bits
+                    if ((self.reg_104 ^ val) & 0x3f) == 0 {
+                        return;
+                    }
+                    //always keep the highest bit enabled, for checking > 0x80
+                    self.reg_104 = 0x80 | (val & 0x3f);
+                } else if reg == 0x105 {
+                    //MAME says the real opl3 doesn't reset anything on opl3 disable/enable till the next write in another register
+                    let active_u8 = if self.opl3_active { 1 } else { 0 };
+                    if ((active_u8 ^ val) & 1) == 0 {
+                        return;
+                    };
+                    self.opl3_active = if (val & 1) != 0 { true } else { false };
+                    //update the 0xc0 register for all channels to signal the switch to mono/stereo handlers
+                    for i in 0..NUM_CHANNELS {
+                        self.channel_reset_c0(i);
+                    }
+                } else if reg == 0x08 {
+                    self.reg_08 = val;
+                }
+            }
+            0x10 => { /*no-op*/ }
             0x20 | 0x30 => self.regop_write_20(reg, val),
             0x40 | 0x50 => self.regop_write_40(reg, val),
             0x60 | 0x70 => self.regop_write_60(reg, val),
@@ -557,8 +656,9 @@ impl Chip {
                 }
             }
             0xc0 => self.regchan_write_c0(reg, val),
+            0xd0 => { /* no-op */ }
             0xe0 | 0xf0 => self.regop_write_e0(reg, val),
-            _ => todo!("reg {:x} not implemented", reg),
+            _ => todo!("reg {:x} not implemented", reg & 0xf0),
         }
     }
 
@@ -572,7 +672,58 @@ impl Chip {
         self.vibrato_strength = if (val & 0x40) != 0 { 0x00 } else { 0x01 };
         self.tremolo_strength = if (val & 0x80) != 0 { 0x00 } else { 0x02 };
 
-        todo!("write bd val {:x}", val);
+        if (val & 0x20) != 0 {
+            //drum was just enabled, make sure channel 6 has the right synth
+            if (change & 0x20) != 0 {
+                if self.opl3_active {
+                    self.channels[6].synth_handler = channel_block_template_sm3percussion;
+                } else {
+                    self.channels[6].synth_handler = channel_block_template_sm2percussion;
+                }
+            }
+            //Bass Drum
+            if (val & 0x10) != 0 {
+                self.channels[6].op(0).key_on(0x2);
+                self.channels[6].op(1).key_on(0x2);
+            } else {
+                self.channels[6].op(0).key_off(0x2);
+                self.channels[6].op(1).key_off(0x2);
+            }
+            //Hi-Hat
+            if (val & 0x1) != 0 {
+                self.channels[7].op(0).key_on(0x2);
+            } else {
+                self.channels[7].op(0).key_off(0x2);
+            }
+            //Snare
+            if (val & 0x8) != 0 {
+                self.channels[7].op(1).key_on(0x2);
+            } else {
+                self.channels[7].op(1).key_off(0x2);
+            }
+            //Tom-Tom
+            if (val & 0x4) != 0 {
+                self.channels[8].op(0).key_on(0x2);
+            } else {
+                self.channels[8].op(0).key_off(0x2);
+            }
+            //Top Cymbal
+            if (val & 0x2) != 0 {
+                self.channels[8].op(1).key_on(0x2);
+            } else {
+                self.channels[8].op(1).key_off(0x2);
+            }
+        //toggle keyoffs when we turn off the percussion
+        } else if (change & 0x20) != 0 {
+            //trigger a reset to setup the original synth handler
+            self.channel_reset_c0(6);
+            self.channels[6].op(0).key_off(0x2);
+            self.channels[6].op(1).key_off(0x2);
+            self.channels[7].op(0).key_off(0x2);
+            self.channels[7].op(1).key_off(0x2);
+            self.channels[8].op(0).key_off(0x2);
+            self.channels[8].op(1).key_off(0x2);
+        }
     }
 
     fn regop_write(
@@ -583,6 +734,7 @@ impl Chip {
     ) {
         let ix = ((reg >> 3) & 0x20) | (reg & 0x1f);
         if let Some(offset) = &self.tables.op_offset_table[ix as usize] {
+            println!("index={}, channel {}, op {}", ix, offset.chan, offset.op);
             let op = &mut self.channels[offset.chan].operator[offset.op];
             let chip_values = ChipValues {
                 wave_form_mask: self.wave_form_mask,
@@ -614,12 +766,13 @@ impl Chip {
 
     fn regchan_write_a0(&mut self, reg: u32, val: u8) {
         let ix = ((reg >> 4) & 0x10) | (reg & 0xf);
-        let offset = self.tables.chan_offset_table[ix as usize];
-        self.channel_write_a0(offset, val);
+        if let Some(offset) = self.tables.chan_offset_table[ix as usize] {
+            self.channel_write_a0(offset, val);
+        }
     }
 
     fn channel_write_a0(&mut self, offset: usize, val: u8) {
-        let channels = if offset == 8 {
+        let channels = if offset == (NUM_CHANNELS - 1) {
             &mut self.channels[offset..(offset + 1)]
         } else {
             &mut self.channels[offset..=(offset + 1)]
@@ -638,12 +791,13 @@ impl Chip {
 
     fn regchan_write_b0(&mut self, reg: u32, val: u8) {
         let ix = ((reg >> 4) & 0x10) | (reg & 0xf);
-        let offset = self.tables.chan_offset_table[ix as usize];
-        self.channel_write_b0(offset, val);
+        if let Some(offset) = self.tables.chan_offset_table[ix as usize] {
+            self.channel_write_b0(offset, val);
+        }
     }
 
     fn channel_write_b0(&mut self, offset: usize, val: u8) {
-        let channels = if offset == 8 {
+        let channels = if offset == (NUM_CHANNELS - 1) {
             &mut self.channels[offset..(offset + 1)]
         } else {
             &mut self.channels[offset..=(offset + 1)]
@@ -684,8 +838,9 @@ impl Chip {
 
     fn regchan_write_c0(&mut self, reg: u32, val: u8) {
         let ix = ((reg >> 4) & 0x10) | (reg & 0xf);
-        let offset = self.tables.chan_offset_table[ix as usize];
-        self.channel_write_c0(offset, val);
+        if let Some(offset) = self.tables.chan_offset_table[ix as usize] {
+            self.channel_write_c0(offset, val);
+        }
     }
 
     fn channel_write_c0(&mut self, offset: usize, val: u8) {
@@ -713,6 +868,12 @@ impl Chip {
         }
     }
 
+    fn channel_reset_c0(&mut self, offset: usize) {
+        let val = self.channels[offset].reg_c0;
+        self.channels[offset].reg_c0 ^= 0xff;
+        self.channel_write_c0(offset, val);
+    }
+
     fn generate_block_2(&mut self, total_in: usize, mix_buffer: &mut Vec<i32>) {
         mix_buffer.fill(0);
 
@@ -721,9 +882,13 @@ impl Chip {
         while total != 0 {
             let samples = self.forward_lfo(total as u32) as usize;
             let mut chan_ptr = 0;
+            let mut count = 0;
             while chan_ptr < NUM_CHANNELS {
+                println!("## ch = {}, count = {}", chan_ptr, count);
+                count += 1;
                 let chan = &mut self.channels[chan_ptr];
-                let ch_shift = (chan.synth_handler)(chan, samples, mix_buffer, mix_offset);
+                let ch_shift =
+                    (chan.synth_handler)(self, chan_ptr, samples, mix_buffer, mix_offset);
                 chan_ptr += ch_shift;
             }
             total -= samples;
@@ -808,6 +973,7 @@ fn operator_write_20(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8
 }
 
 fn operator_write_40(op: &mut Operator, _: &Tables, _: &ChipValues, val: u8) {
+    println!("operator_write_40");
     if (op.reg_40 ^ val) == 0 {
         return;
     }
@@ -850,7 +1016,7 @@ fn operator_write_e0(op: &mut Operator, tables: &Tables, chip: &ChipValues, val:
         (val & ((0x03 & chip.wave_form_mask) | (0x7 & chip.opl3_active as u8))) as usize;
     op.reg_e0 = val;
     // TODO #if( DBOPL_WAVE == WAVE_HANDLER ) ?
-    op.wave_base = tables.wave_table[WAVE_BASE_TABLE[wave_form]];
+    op.wave_base = WAVE_BASE_TABLE[wave_form];
     op.wave_start = (WAVE_START_TABLE[wave_form] as u32) << WAVE_SH;
     op.wave_mask = WAVE_MASK_TABLE[wave_form] as u32;
 }
@@ -929,16 +1095,23 @@ fn operator_update_attack(op: &mut Operator, tables: &Tables) {
 }
 
 fn operator_update_attenuation(op: &mut Operator) {
+    println!("#operator_update_attenuation, reg40={}", op.reg_40);
     let ksl_base = ((op.chan_data >> SHIFT_KSLBASE) & 0xFF) as i32;
-    let tl = op.reg_40 & 0x3f;
+    let tl = (op.reg_40 & 0x3f) as i32;
     let ksl_shift = KSL_SHIFT_TABLE[(op.reg_40 >> 6) as usize];
 
     //make sure the attenuation goes to the right bits
-    op.total_level = (tl << ((ENV_BITS - 7) as u8)) as i32; //Total level goes 2 bits below max
+    op.total_level = tl << ((ENV_BITS - 7) as u8); //total level goes 2 bits below max
     op.total_level += (ksl_base << ENV_EXTRA) >> ksl_shift;
+    println!("##totalLevel = {}", op.total_level);
 }
 
 fn operator_silent(op: &Operator) -> bool {
+    println!(
+        "#### total_level = {}, volume = {}",
+        op.total_level, op.volume,
+    );
+
     if !env_silent(op.total_level + op.volume) {
         return false;
     }
@@ -948,79 +1121,317 @@ fn operator_silent(op: &Operator) -> bool {
     true
 }
 
+fn operator_prepare(chip: &mut Chip, channel_ix: usize, op_ix: usize) {
+    let op = chip.channels[channel_ix].op(op_ix);
+    op.current_level = op.total_level + (chip.tremolo_value & op.tremolo_mask) as i32;
+    op.wave_current = op.wave_add;
+    if (op.vib_strength >> chip.vibrato_shift) != 0 {
+        let mut add = (op.vibrato >> chip.vibrato_shift) as i32;
+        //sign extend over the shift value
+        let neg = chip.vibrato_sign as i32;
+        //negate the add with -1 or 0
+        add = (add ^ neg) - neg;
+        op.wave_current += add as u32;
+    }
+}
+
+fn operator_get_sample(op: &mut Operator, tables: &Tables, modulation: i32) -> i32 {
+    let vol = operator_forward_volume(op);
+    if env_silent(vol) {
+        //simply forward the wave
+        op.wave_index += op.wave_current;
+        0
+    } else {
+        let mut index = operator_forward_wave(op) as i32;
+        index += modulation;
+        operator_get_wave(op, tables, index, vol)
+    }
+}
+
+fn operator_get_wave(op: &mut Operator, tables: &Tables, index: i32, vol: i32) -> i32 {
+    // TODO Impl DBOPL_WAVE == WAV_HANDLER and DBOP_WAVE == WAVE_TABLELOG
+    // current impl is only DPOPL_WAVE == WAVE_TABLEMUL
+    let wave = tables.wave_table[op.wave_base + (index & op.wave_mask as i32) as usize] as i32;
+    let mul = (tables.mul_table[(vol >> ENV_EXTRA) as usize] as i32) >> MUL_SH;
+    wave * mul
+}
+
+fn operator_forward_volume(op: &mut Operator) -> i32 {
+    op.current_level + (op.vol_handler)(op)
+}
+
+fn operator_forward_wave(op: &mut Operator) -> u32 {
+    op.wave_index += op.wave_current;
+    op.wave_index >> WAVE_SH
+}
+
+fn operator_rate_forward(op: &mut Operator, add: u32) -> i32 {
+    op.rate_index += add;
+    let ret = op.rate_index >> RATE_SH;
+    op.rate_index = op.rate_index & RATE_MASK;
+    ret as i32
+}
+
 // Channel Block Templates
 
 fn channel_block_template_sm2fm(
-    channel: &mut Channel,
+    chip: &mut Chip,
+    channel_ix: usize,
     samples: usize,
     output: &mut Vec<i32>,
     output_offset: usize,
 ) -> usize {
-    channel_block_template(channel, samples, output, output_offset, SynthMode::SM2FM)
+    channel_block_template(
+        chip,
+        channel_ix,
+        samples,
+        output,
+        output_offset,
+        SynthMode::SM2FM,
+    )
+}
+
+fn channel_block_template_sm2percussion(
+    chip: &mut Chip,
+    channel_ix: usize,
+    samples: usize,
+    output: &mut Vec<i32>,
+    output_offset: usize,
+) -> usize {
+    channel_block_template(
+        chip,
+        channel_ix,
+        samples,
+        output,
+        output_offset,
+        SynthMode::SM2Percussion,
+    )
+}
+
+fn channel_block_template_sm3percussion(
+    chip: &mut Chip,
+    channel_ix: usize,
+    samples: usize,
+    output: &mut Vec<i32>,
+    output_offset: usize,
+) -> usize {
+    channel_block_template(
+        chip,
+        channel_ix,
+        samples,
+        output,
+        output_offset,
+        SynthMode::SM3Percussion,
+    )
 }
 
 fn channel_block_template_sm2am(
-    channel: &mut Channel,
+    chip: &mut Chip,
+    channel_ix: usize,
     samples: usize,
     output: &mut Vec<i32>,
     output_offset: usize,
 ) -> usize {
-    channel_block_template(channel, samples, output, output_offset, SynthMode::SM2AM)
+    channel_block_template(
+        chip,
+        channel_ix,
+        samples,
+        output,
+        output_offset,
+        SynthMode::SM2AM,
+    )
 }
 
 fn channel_block_template(
-    channel: &mut Channel,
+    chip: &mut Chip,
+    channel_ix: usize,
     samples: usize,
     output: &mut Vec<i32>,
     output_offset: usize,
     mode: SynthMode,
 ) -> usize {
+    println!("##synth_handler = {:?}", mode);
     match mode {
         SynthMode::SM2AM | SynthMode::SM3AM => {
-            if operator_silent(&channel.operator[0]) && operator_silent(&channel.operator[1]) {
-                channel.old[0] = 0;
-                channel.old[1] = 0;
+            if operator_silent(&chip.channels[channel_ix].operator[0])
+                && operator_silent(&chip.channels[channel_ix].operator[1])
+            {
+                chip.channels[channel_ix].old[0] = 0;
+                chip.channels[channel_ix].old[1] = 0;
                 return 1;
             }
         }
         SynthMode::SM2FM | SynthMode::SM3FM => {
-            if operator_silent(&channel.operator[1]) {
-                channel.old[0] = 0;
-                channel.old[1] = 0;
+            if operator_silent(&chip.channels[channel_ix].operator[1]) {
+                println!("### op silent");
+                chip.channels[channel_ix].old[0] = 0;
+                chip.channels[channel_ix].old[1] = 0;
                 return 1;
             }
+            println!("### op not silent");
         }
         _ => todo!("block template {:?}", mode),
     }
 
-    todo!("block template handling {:?}", mode);
-    return 0;
+    //init the operators with the the current vibrato and tremolo values
+    operator_prepare(chip, channel_ix, 0);
+    operator_prepare(chip, channel_ix, 1);
+
+    if mode > SynthMode::SM4Start {
+        operator_prepare(chip, channel_ix, 2);
+        operator_prepare(chip, channel_ix, 3);
+    }
+    if mode > SynthMode::SM6Start {
+        operator_prepare(chip, channel_ix, 4);
+        operator_prepare(chip, channel_ix, 5);
+    }
+
+    for i in 0..samples {
+        //early out for percussion handlers
+        if mode == SynthMode::SM2Percussion {
+            channel_generate_percussion(chip, channel_ix, output, i, false);
+            continue; //prevent some unitialized value bitching
+        } else if mode == SynthMode::SM3Percussion {
+            channel_generate_percussion(chip, channel_ix, output, i * 2, true);
+            continue; //prevent some unitialized value bitching
+        }
+
+        //do unsigned shift so we can shift out all bits but still stay in 10 bit range otherwise
+        let modulation = ((chip.channels[channel_ix].old[0] + chip.channels[channel_ix].old[1])
+            as u32
+            >> chip.channels[channel_ix].feedback) as i32;
+        chip.channels[channel_ix].old[0] = chip.channels[channel_ix].old[1];
+        chip.channels[channel_ix].old[1] =
+            operator_get_sample(chip.channels[channel_ix].op(0), &chip.tables, modulation);
+        let mut sample = 0;
+        let out_0 = chip.channels[channel_ix].old[0];
+        if mode == SynthMode::SM2AM || mode == SynthMode::SM3AM {
+            sample = out_0 + operator_get_sample(chip.channels[channel_ix].op(1), &chip.tables, 0);
+        } else if mode == SynthMode::SM2FM || mode == SynthMode::SM3FM {
+            sample = operator_get_sample(chip.channels[channel_ix].op(1), &chip.tables, out_0);
+        } else if mode == SynthMode::SM3FMFM {
+            let next = operator_get_sample(chip.channels[channel_ix].op(1), &chip.tables, out_0);
+            let next = operator_get_sample(chip.channels[channel_ix].op(2), &chip.tables, next);
+            sample = operator_get_sample(chip.channels[channel_ix].op(3), &chip.tables, next);
+        } else if mode == SynthMode::SM3AMFM {
+            sample = out_0;
+            let next = operator_get_sample(chip.channels[channel_ix].op(1), &chip.tables, 0);
+            let next = operator_get_sample(chip.channels[channel_ix].op(2), &chip.tables, next);
+            sample += operator_get_sample(chip.channels[channel_ix].op(3), &chip.tables, next);
+        } else if mode == SynthMode::SM3FMAM {
+            sample = operator_get_sample(chip.channels[channel_ix].op(1), &chip.tables, out_0);
+            let next = operator_get_sample(chip.channels[channel_ix].op(2), &chip.tables, 0);
+            sample += operator_get_sample(chip.channels[channel_ix].op(3), &chip.tables, next);
+        } else if mode == SynthMode::SM3AMAM {
+            sample = out_0;
+            let next = operator_get_sample(chip.channels[channel_ix].op(1), &chip.tables, 0);
+            sample += operator_get_sample(chip.channels[channel_ix].op(2), &chip.tables, next);
+            sample += operator_get_sample(chip.channels[channel_ix].op(3), &chip.tables, 0);
+        }
+        match mode {
+            SynthMode::SM2AM | SynthMode::SM2FM => {
+                output[i] += sample;
+            }
+            SynthMode::SM3AM
+            | SynthMode::SM3FM
+            | SynthMode::SM3FMFM
+            | SynthMode::SM3AMFM
+            | SynthMode::SM3FMAM
+            | SynthMode::SM3AMAM => {
+                output[i * 2 + 0] += sample & chip.channels[channel_ix].mask_left as i32;
+                output[i * 2 + 1] += sample & chip.channels[channel_ix].mask_right as i32;
+            }
+            _ => { /*no-op*/ }
+        }
+    }
+
+    match mode {
+        SynthMode::SM2AM | SynthMode::SM2FM | SynthMode::SM3AM | SynthMode::SM3FM => 1,
+        SynthMode::SM3FMFM | SynthMode::SM3AMFM | SynthMode::SM3FMAM | SynthMode::SM3AMAM => 2,
+        SynthMode::SM2Percussion | SynthMode::SM3Percussion => 3,
+        _ => 0,
+    }
+}
+
+fn channel_generate_percussion(
+    chip: &mut Chip,
+    channel_ix: usize,
+    output: &mut Vec<i32>,
+    output_offset: usize,
+    opl3_mode: bool,
+) {
+    todo!("channel_generate_percussion");
 }
 
 // Volume Templates
 
-fn template_volume_off(op: &Operator) {
+fn template_volume_off(op: &mut Operator) -> i32 {
     template_volume(op, OperatorState::OFF)
 }
 
-fn template_volume_release(op: &Operator) {
+fn template_volume_release(op: &mut Operator) -> i32 {
     template_volume(op, OperatorState::RELEASE)
 }
 
-fn template_volume_sustain(op: &Operator) {
+fn template_volume_sustain(op: &mut Operator) -> i32 {
     template_volume(op, OperatorState::SUSTAIN)
 }
 
-fn template_volume_attack(op: &Operator) {
+fn template_volume_attack(op: &mut Operator) -> i32 {
     template_volume(op, OperatorState::ATTACK)
 }
 
-fn template_volume_decay(op: &Operator) {
+fn template_volume_decay(op: &mut Operator) -> i32 {
     template_volume(op, OperatorState::DECAY)
 }
 
-fn template_volume(op: &Operator, state: OperatorState) {
-    todo!("impl template volume {:?}", state)
+fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
+    let mut vol = op.volume;
+    match state {
+        OperatorState::OFF => {
+            return ENV_MAX;
+        }
+        OperatorState::ATTACK => {
+            let change = operator_rate_forward(op, op.attack_add);
+            if change == 0 {
+                return vol;
+            }
+            vol += ((!vol) * change) >> 3;
+            if vol < ENV_MIN {
+                op.volume = ENV_MIN;
+                op.rate_index = 0;
+                op.set_state(OperatorState::DECAY);
+                return ENV_MIN;
+            }
+        }
+        OperatorState::DECAY => {
+            vol += operator_rate_forward(op, op.decay_add);
+            if vol >= op.sustain_level {
+                //check if we didn't overshoot max attenuation, then just go off
+                if vol >= ENV_MAX {
+                    op.volume = ENV_MAX;
+                    op.set_state(OperatorState::OFF);
+                    return ENV_MAX;
+                }
+            }
+            //continue as sustain
+            op.rate_index = 0;
+            op.set_state(OperatorState::SUSTAIN);
+        }
+        OperatorState::SUSTAIN | OperatorState::RELEASE => {
+            if state == OperatorState::SUSTAIN && (op.reg_20 & MASK_SUSTAIN) != 0 {
+                return vol;
+            }
+            vol += operator_rate_forward(op, op.release_add);
+            if vol >= ENV_MAX {
+                op.volume = ENV_MAX;
+                op.set_state(OperatorState::OFF);
+                return ENV_MAX;
+            }
+        }
+    }
+    op.volume = vol;
+    vol
 }
 
 // helper functions

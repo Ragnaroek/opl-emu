@@ -93,7 +93,6 @@ impl AudioCallback for OPLCallback {
     type Channel = i16;
 
     fn callback(&mut self, out: &mut [i16]) {
-        println!("### callback");
         let stereo_len = out.len() >> 1;
         let mut samples_len = stereo_len as u32 >> 1;
         let mut out_offset = 0;
@@ -165,12 +164,27 @@ fn opl_update(
     len: usize,
     mix_buffer: &mut Vec<i32>,
 ) {
+    println!("\n\ncall_count = {}", chip.call_count);
+    let debug_count = 0;
+
     chip.generate_block_2(len, mix_buffer);
+
+    println!("buf len = {}", len);
 
     let mut mix_ptr = 0;
     let mut out_ptr = offset;
     for _ in 0..len {
         let mix = (mix_buffer[mix_ptr] << 2) as i16; // increase volume a bit
+
+        if chip.call_count == debug_count {
+            println!("mix = {}", mix);
+        }
+
+        if mix != 0 {
+            println!("mix = {}", mix);
+            panic!("exit");
+        }
+
         mix_ptr += 1;
 
         sdl_out[out_ptr] = mix;
@@ -178,4 +192,10 @@ fn opl_update(
         sdl_out[out_ptr] = mix;
         out_ptr += 1;
     }
+
+    if chip.call_count == debug_count {
+        panic!("exit");
+    }
+
+    chip.call_count += 1;
 }
