@@ -7,8 +7,6 @@ mod lib_test;
 use core::array::from_fn;
 use std::f64::consts::PI;
 
-use sdl2::libc::ATTR_VOL_UUID;
-
 #[cfg(feature = "sdl")]
 pub mod backend_sdl;
 
