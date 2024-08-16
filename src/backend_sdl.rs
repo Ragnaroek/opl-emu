@@ -165,17 +165,16 @@ fn opl_update(
     mix_buffer: &mut Vec<i32>,
 ) {
     println!("\n\ncall_count = {}", chip.call_count);
-    let debug_count = 0;
+    let debug_count = 15;
 
     chip.generate_block_2(len, mix_buffer);
-
-    println!("buf len = {}", len);
 
     let mut mix_ptr = 0;
     let mut out_ptr = offset;
     for _ in 0..len {
         let mix = (mix_buffer[mix_ptr] << 2) as i16; // increase volume a bit
 
+        /*
         if chip.call_count == debug_count {
             println!("mix = {}", mix);
         }
@@ -183,7 +182,7 @@ fn opl_update(
         if mix != 0 {
             println!("mix = {}", mix);
             panic!("exit");
-        }
+        }*/
 
         mix_ptr += 1;
 

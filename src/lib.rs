@@ -168,7 +168,7 @@ pub struct Operator {
 
 impl Operator {
     pub fn new() -> Operator {
-        Operator {
+        let mut op = Operator {
             vol_handler: template_volume_off,
 
             wave_base: 0,
@@ -202,7 +202,9 @@ impl Operator {
             tremolo_mask: 0,
             vib_strength: 0,
             ksr: 0,
-        }
+        };
+        op.set_state(OperatorState::OFF);
+        op
     }
     /*
     static void Operator__Operator(Operator *self) {
@@ -234,6 +236,9 @@ impl Operator {
     }
 
     fn set_state(&mut self, s: OperatorState) {
+        if s == OperatorState::RELEASE {
+            println!("!!!! SetState(1) happening");
+        }
         self.state = s;
         self.vol_handler = VOLUME_HANDLER_TABLE[s as usize];
     }
@@ -299,9 +304,14 @@ impl Channel {
         &mut self.operator[ix]
     }
 
-    fn set_chan_data(&mut self, data: u32) {
-        println!("#set_chan_data");
+    fn set_chan_data(&mut self, tables: &Tables, data: u32) {
         let change = self.chan_data ^ data;
+        println!(
+            "#set_chan_data, change={}, ksl={}, keycode={}",
+            change,
+            change & (0xff << SHIFT_KSLBASE),
+            change & (0xff << SHIFT_KEYCODE)
+        );
         self.chan_data = data;
         self.op(0).chan_data = data;
         self.op(1).chan_data = data;
@@ -314,8 +324,8 @@ impl Channel {
             operator_update_attenuation(self.op(1));
         }
         if (change & (0xff << SHIFT_KEYCODE)) != 0 {
-            operator_update_attenuation(self.op(0));
-            operator_update_attenuation(self.op(1));
+            operator_update_rates(self.op(0), tables);
+            operator_update_rates(self.op(1), tables);
         }
     }
 }
@@ -409,7 +419,6 @@ fn init_tables(scale: f64) -> Tables {
 
     let mut freq_mul = [0; 16];
     let freq_scale = (0.5 + scale * (1 << (WAVE_SH - 1 - 10)) as f64) as u32;
-    println!("freq_scale={}, scale={}", freq_scale, scale);
     for i in 0..16 {
         freq_mul[i] = freq_scale * FREQ_CREATE_TABLE[i] as u32;
     }
@@ -609,6 +618,7 @@ impl Chip {
             chip.write_reg(i, 0xff);
             chip.write_reg(i, 0x00);
         }
+        chip.write_reg(1, 0x20);
         chip
     }
 
@@ -795,6 +805,7 @@ impl Chip {
     }
 
     fn channel_write_b0(&mut self, offset: usize, val: u8) {
+        println!("#channel_writeB0");
         let channels = if offset == (NUM_CHANNELS - 1) {
             &mut self.channels[offset..(offset + 1)]
         } else {
@@ -812,7 +823,7 @@ impl Chip {
         }
 
         //check for a change in the keyon/off state
-        if (!((val ^ channels[0].reg_b0) & 0x20)) != 0 {
+        if ((val ^ channels[0].reg_b0) & 0x20) == 0 {
             return;
         }
 
@@ -832,6 +843,7 @@ impl Chip {
                 channels[1].op(1).key_off(1);
             }
         }
+        println!("#end channel_writeB0");
     }
 
     fn regchan_write_c0(&mut self, reg: u32, val: u8) {
@@ -882,7 +894,6 @@ impl Chip {
             let mut chan_ptr = 0;
             let mut count = 0;
             while chan_ptr < NUM_CHANNELS {
-                println!("## ch = {}, count = {}", chan_ptr, count);
                 count += 1;
                 let chan = &mut self.channels[chan_ptr];
                 let ch_shift =
@@ -936,9 +947,9 @@ fn channel_update_frequency(channels: &mut [Channel], four_op: u8, reg_08: u8, t
     }
     //add the keycode and ksl into the highest bits of chanData
     data |= (key_code << SHIFT_KEYCODE) | ((ksl_base as u32) << SHIFT_KSLBASE);
-    channels[0].set_chan_data(data);
+    channels[0].set_chan_data(tables, data);
     if (four_op & 0x3f) != 0 {
-        channels[1].set_chan_data(data);
+        channels[1].set_chan_data(tables, data);
     }
 }
 
@@ -1063,7 +1074,7 @@ fn operator_update_release(op: &mut Operator, tables: &Tables) {
         op.rate_zero |= 1 << OperatorState::RELEASE as u8;
         op.release_add = 0;
         if (op.reg_20 & MASK_SUSTAIN) == 0 {
-            op.rate_zero &= 1 << OperatorState::SUSTAIN as u8;
+            op.rate_zero |= 1 << OperatorState::SUSTAIN as u8;
         }
     }
 }
@@ -1085,7 +1096,7 @@ fn operator_update_attack(op: &mut Operator, tables: &Tables) {
     if rate != 0 {
         let val = (rate << 2) + op.ksr;
         op.attack_add = tables.attack_rates[val as usize];
-        op.rate_zero = !(1 << OperatorState::ATTACK as u8);
+        op.rate_zero &= !(1 << OperatorState::ATTACK as u8);
     } else {
         op.attack_add = 0;
         op.rate_zero |= 1 << OperatorState::ATTACK as u8;
@@ -1111,9 +1122,13 @@ fn operator_silent(op: &Operator) -> bool {
     );
 
     if !env_silent(op.total_level + op.volume) {
+        println!("env_silent");
         return false;
     }
+    println!("t = {}", (op.rate_zero & (1 << op.state as u8)));
+    println!("rate zero = {}, state = {}", op.rate_zero, op.state as u8);
     if (op.rate_zero & (1 << op.state as u8)) == 0 {
+        println!("rate zero = {}, state = {}", op.rate_zero, op.state as u8);
         return false;
     }
     true
@@ -1248,9 +1263,9 @@ fn channel_block_template(
     output_offset: usize,
     mode: SynthMode,
 ) -> usize {
-    println!("##synth_handler = {:?}", mode);
     match mode {
         SynthMode::SM2AM | SynthMode::SM3AM => {
+            println!("## synth_handler = sm2AM|sm3AM");
             if operator_silent(&chip.channels[channel_ix].operator[0])
                 && operator_silent(&chip.channels[channel_ix].operator[1])
             {
@@ -1260,6 +1275,7 @@ fn channel_block_template(
             }
         }
         SynthMode::SM2FM | SynthMode::SM3FM => {
+            println!("## synth_handler = sm2FM|sm3FM");
             if operator_silent(&chip.channels[channel_ix].operator[1]) {
                 println!("### op silent");
                 chip.channels[channel_ix].old[0] = 0;

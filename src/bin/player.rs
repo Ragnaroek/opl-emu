@@ -9,14 +9,6 @@ pub fn main() {
         return;
     }
     let data = read_file(&args[1]);
-
-    println!(
-        "data len = {}, byte0={}, byte1={}",
-        data.len(),
-        data[0],
-        data[1]
-    );
-
     let settings = opl::OPLSettings {
         mixer_rate: 49716,
         imf_clock_rate: 0,
