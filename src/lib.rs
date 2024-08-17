@@ -204,6 +204,7 @@ impl Operator {
             ksr: 0,
         };
         op.set_state(OperatorState::OFF);
+        println!("rate_zero = {}", op.rate_zero);
         op
     }
     /*
@@ -893,7 +894,7 @@ impl Chip {
             let samples = self.forward_lfo(total as u32) as usize;
             let mut chan_ptr = 0;
             let mut count = 0;
-            while chan_ptr < NUM_CHANNELS {
+            while chan_ptr < 9 {
                 count += 1;
                 let chan = &mut self.channels[chan_ptr];
                 let ch_shift =
@@ -1006,7 +1007,7 @@ fn operator_write_80(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8
     if change == 0 {
         return;
     }
-    op.reg_80 = change;
+    op.reg_80 = val;
     let mut sustain = val >> 4;
     sustain |= (sustain + 1) & 0x10;
     op.sustain_level = (sustain as i32) << (ENV_BITS - 5);
@@ -1063,6 +1064,7 @@ fn operator_update_frequency(op: &mut Operator) {
 
 fn operator_update_release(op: &mut Operator, tables: &Tables) {
     let rate = op.reg_80 & 0xf;
+    println!("release, rate = {}", rate);
     if rate != 0 {
         let val = (rate << 2) + op.ksr;
         op.release_add = tables.linear_rates[val as usize];
@@ -1077,6 +1079,7 @@ fn operator_update_release(op: &mut Operator, tables: &Tables) {
             op.rate_zero |= 1 << OperatorState::SUSTAIN as u8;
         }
     }
+    println!("rate_zero_release = {}", op.rate_zero);
 }
 
 fn operator_update_decay(op: &mut Operator, tables: &Tables) {
@@ -1089,10 +1092,12 @@ fn operator_update_decay(op: &mut Operator, tables: &Tables) {
         op.decay_add = 0;
         op.rate_zero |= 1 << OperatorState::DECAY as u8;
     }
+    println!("rate_zero_decay = {}", op.rate_zero);
 }
 
 fn operator_update_attack(op: &mut Operator, tables: &Tables) {
     let rate = op.reg_60 >> 4;
+    println!("rate_zero0 = {}", op.rate_zero);
     if rate != 0 {
         let val = (rate << 2) + op.ksr;
         op.attack_add = tables.attack_rates[val as usize];
@@ -1101,6 +1106,7 @@ fn operator_update_attack(op: &mut Operator, tables: &Tables) {
         op.attack_add = 0;
         op.rate_zero |= 1 << OperatorState::ATTACK as u8;
     }
+    println!("rate_zero = {}", op.rate_zero);
 }
 
 fn operator_update_attenuation(op: &mut Operator) {

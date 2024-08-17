@@ -122,38 +122,39 @@ impl AudioCallback for OPLCallback {
                 }
             }
 
-            if self.hack_time > self.al_time_count {
-                break;
+            loop {
+                if self.hack_time > self.al_time_count {
+                    break;
+                }
+
+                let t = u16::from_le_bytes(
+                    self.data[(self.hack_ptr + 2)..(self.hack_ptr + 4)]
+                        .try_into()
+                        .unwrap(),
+                ) as u32;
+                self.hack_time = self.al_time_count + t;
+
+                let reg = self.data[self.hack_ptr] as u32;
+                let val = self.data[self.hack_ptr + 1];
+
+                self.chip.write_reg(reg, val);
+                self.hack_ptr += 4;
+                self.hack_len -= 4;
+
+                if self.hack_len <= 0 {
+                    break;
+                }
+            }
+            self.al_time_count += 1;
+            if self.hack_len == 0 {
+                self.hack_ptr = 0;
+                self.hack_len = self.hack_seq_len;
+                self.hack_time = 0;
+                self.al_time_count = 0;
             }
 
-            let t = u16::from_le_bytes(
-                self.data[(self.hack_ptr + 2)..(self.hack_ptr + 4)]
-                    .try_into()
-                    .unwrap(),
-            ) as u32;
-            self.hack_time = self.al_time_count + t;
-
-            let reg = self.data[self.hack_ptr] as u32;
-            let val = self.data[self.hack_ptr + 1];
-
-            self.chip.write_reg(reg, val);
-            self.hack_ptr += 4;
-            self.hack_len -= 4;
-
-            if self.hack_len <= 0 {
-                break;
-            }
+            self.num_ready_samples = self.samples_per_music_tick;
         }
-
-        self.al_time_count += 1;
-        if self.hack_len == 0 {
-            self.hack_ptr = 0;
-            self.hack_len = self.hack_seq_len;
-            self.hack_time = 0;
-            self.al_time_count = 0;
-        }
-
-        self.num_ready_samples = self.samples_per_music_tick;
     }
 }
 
