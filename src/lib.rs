@@ -104,7 +104,7 @@ pub struct Chip {
     tremolo_strength: u8,
 
     wave_form_mask: u8,
-    opl3_active: bool,
+    opl3_active: u8,
 
     tables: Tables,
     //debug
@@ -113,7 +113,7 @@ pub struct Chip {
 
 pub struct ChipValues {
     wave_form_mask: u8,
-    opl3_active: bool,
+    opl3_active: u8,
 }
 
 #[repr(u8)]
@@ -579,7 +579,7 @@ impl Chip {
             vibrato_strength: 0,
             tremolo_strength: 0,
             wave_form_mask: 0,
-            opl3_active: false,
+            opl3_active: 0,
             tables: init_tables(scale),
             call_count: 0,
         }
@@ -638,11 +638,10 @@ impl Chip {
                     self.reg_104 = 0x80 | (val & 0x3f);
                 } else if reg == 0x105 {
                     //MAME says the real opl3 doesn't reset anything on opl3 disable/enable till the next write in another register
-                    let active_u8 = if self.opl3_active { 1 } else { 0 };
-                    if ((active_u8 ^ val) & 1) == 0 {
+                    if ((self.opl3_active ^ val) & 1) == 0 {
                         return;
                     };
-                    self.opl3_active = if (val & 1) != 0 { true } else { false };
+                    self.opl3_active = if (val & 1) != 0 { 0xff } else { 0 };
                     //update the 0xc0 register for all channels to signal the switch to mono/stereo handlers
                     for i in 0..NUM_CHANNELS {
                         self.channel_reset_c0(i);
@@ -684,7 +683,7 @@ impl Chip {
         if (val & 0x20) != 0 {
             //drum was just enabled, make sure channel 6 has the right synth
             if (change & 0x20) != 0 {
-                if self.opl3_active {
+                if self.opl3_active != 0 {
                     self.channels[6].synth_handler = channel_block_template_sm3percussion;
                 } else {
                     self.channels[6].synth_handler = channel_block_template_sm2percussion;
@@ -786,7 +785,7 @@ impl Chip {
         } else {
             &mut self.channels[offset..=(offset + 1)]
         };
-        let four_op = self.reg_104 & if self.opl3_active { 1 } else { 0 } & channels[0].four_mask;
+        let four_op = self.reg_104 & self.opl3_active & channels[0].four_mask;
         //don't handle writes to silent fourop channels
         if four_op > 0x80 {
             return;
@@ -812,7 +811,7 @@ impl Chip {
         } else {
             &mut self.channels[offset..=(offset + 1)]
         };
-        let four_op = self.reg_104 & if self.opl3_active { 1 } else { 0 } & channels[0].four_mask;
+        let four_op = self.reg_104 & self.opl3_active & channels[0].four_mask;
         //don't handle writes to silent fourop channels
         if four_op > 0x80 {
             return;
@@ -1031,6 +1030,11 @@ fn operator_write_e0(op: &mut Operator, tables: &Tables, chip: &ChipValues, val:
     op.wave_base = WAVE_BASE_TABLE[wave_form];
     op.wave_start = (WAVE_START_TABLE[wave_form] as u32) << WAVE_SH;
     op.wave_mask = WAVE_MASK_TABLE[wave_form] as u32;
+
+    println!(
+        "#e0, wave_start={}, wave_form={}, wave_form_mask={}, opl3_active={:x}",
+        op.wave_start, wave_form, chip.wave_form_mask, chip.opl3_active
+    );
 }
 
 fn operator_update_rates(op: &mut Operator, tables: &Tables) {
@@ -1130,7 +1134,6 @@ fn operator_silent(op: &Operator) -> bool {
     );
 
     if !env_silent(op.total_level + op.volume) {
-        println!("env_silent");
         return false;
     }
     println!("t = {}", (op.rate_zero & (1 << op.state as u8)));
@@ -1160,6 +1163,10 @@ fn operator_get_sample(op: &mut Operator, tables: &Tables, modulation: i32) -> i
     let vol = operator_forward_volume(op);
     if env_silent(vol) {
         //simply forward the wave
+        println!(
+            "#GetSample waveIndex={}, waveCurrent={}",
+            op.wave_index, op.wave_current,
+        );
         op.wave_index += op.wave_current;
         0
     } else {

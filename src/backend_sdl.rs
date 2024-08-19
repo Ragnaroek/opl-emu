@@ -182,7 +182,7 @@ fn opl_update(
     mix_buffer: &mut Vec<i32>,
 ) {
     //println!("\n\ncall_count = {}", chip.call_count);
-    let debug_count = 15;
+    let debug_count = 30;
 
     chip.generate_block_2(len, mix_buffer);
 
@@ -209,9 +209,9 @@ fn opl_update(
         out_ptr += 1;
     }
 
-    /*if chip.call_count == debug_count {
+    if chip.call_count == debug_count {
         panic!("exit");
-    }*/
+    }
 
     chip.call_count += 1;
 }
