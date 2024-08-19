@@ -22,7 +22,6 @@ impl OPL {
         self.ensure_device(settings);
 
         let device = self.device.as_mut().expect("device");
-        device.pause();
         {
             let mut cb = device.lock();
             cb.hack_len = data.len();
@@ -31,7 +30,10 @@ impl OPL {
             cb.al_time_count = 0;
             cb.hack_ptr = 0;
             cb.data = data;
+
+            cb.chip.setup();
         }
+
         device.resume();
         Ok(())
     }
@@ -68,7 +70,16 @@ impl OPL {
                     }
                 })
                 .expect("playback open failed");
+            /*
+            println!(
+                "## samples = {:?}, size={}",
+                desired_spec.samples,
+                device.spec().size
+            );*/
+
             self.device = Some(device);
+        } else {
+            println!("### device set");
         }
     }
 }
@@ -93,11 +104,16 @@ impl AudioCallback for OPLCallback {
     type Channel = i16;
 
     fn callback(&mut self, out: &mut [i16]) {
-        let stereo_len = out.len() >> 1;
-        let mut samples_len = stereo_len as u32 >> 1;
+        let mut samples_len = out.len() as u32 >> 1;
+        println!(
+            "### callback, len = {}, sampleslen = {}",
+            out.len(),
+            samples_len
+        );
         let mut out_offset = 0;
 
         loop {
+            println!("num_ready_samples = {}", self.num_ready_samples);
             if self.num_ready_samples > 0 {
                 if self.num_ready_samples < samples_len {
                     opl_update(
@@ -165,7 +181,7 @@ fn opl_update(
     len: usize,
     mix_buffer: &mut Vec<i32>,
 ) {
-    println!("\n\ncall_count = {}", chip.call_count);
+    //println!("\n\ncall_count = {}", chip.call_count);
     let debug_count = 15;
 
     chip.generate_block_2(len, mix_buffer);
@@ -193,9 +209,9 @@ fn opl_update(
         out_ptr += 1;
     }
 
-    if chip.call_count == debug_count {
+    /*if chip.call_count == debug_count {
         panic!("exit");
-    }
+    }*/
 
     chip.call_count += 1;
 }

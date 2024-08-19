@@ -204,7 +204,7 @@ impl Operator {
             ksr: 0,
         };
         op.set_state(OperatorState::OFF);
-        println!("rate_zero = {}", op.rate_zero);
+        //println!("rate_zero = {}", op.rate_zero);
         op
     }
     /*
@@ -564,7 +564,7 @@ impl Chip {
     pub fn new(rate: u32) -> Chip {
         let channels = from_fn(|_| Channel::new());
         let scale = OPL_RATE / rate as f64;
-        let mut chip = Chip {
+        Chip {
             channels,
             lfo_counter: 0,
             lfo_add: (0.5 + scale * (1 << LFO_SH) as f64) as u32,
@@ -582,45 +582,45 @@ impl Chip {
             opl3_active: false,
             tables: init_tables(scale),
             call_count: 0,
-        };
+        }
+    }
 
-        //setup
-        chip.channels[0].four_mask = 0x00 | (1 << 0);
-        chip.channels[1].four_mask = 0x80 | (1 << 0);
-        chip.channels[2].four_mask = 0x00 | (1 << 1);
-        chip.channels[3].four_mask = 0x80 | (1 << 1);
-        chip.channels[4].four_mask = 0x00 | (1 << 2);
-        chip.channels[5].four_mask = 0x80 | (1 << 2);
+    pub fn setup(&mut self) {
+        self.channels[0].four_mask = 0x00 | (1 << 0);
+        self.channels[1].four_mask = 0x80 | (1 << 0);
+        self.channels[2].four_mask = 0x00 | (1 << 1);
+        self.channels[3].four_mask = 0x80 | (1 << 1);
+        self.channels[4].four_mask = 0x00 | (1 << 2);
+        self.channels[5].four_mask = 0x80 | (1 << 2);
 
-        chip.channels[9].four_mask = 0x00 | (1 << 3);
-        chip.channels[10].four_mask = 0x80 | (1 << 3);
-        chip.channels[11].four_mask = 0x00 | (1 << 4);
-        chip.channels[12].four_mask = 0x80 | (1 << 4);
-        chip.channels[13].four_mask = 0x00 | (1 << 5);
-        chip.channels[14].four_mask = 0x80 | (1 << 5);
+        self.channels[9].four_mask = 0x00 | (1 << 3);
+        self.channels[10].four_mask = 0x80 | (1 << 3);
+        self.channels[11].four_mask = 0x00 | (1 << 4);
+        self.channels[12].four_mask = 0x80 | (1 << 4);
+        self.channels[13].four_mask = 0x00 | (1 << 5);
+        self.channels[14].four_mask = 0x80 | (1 << 5);
 
         //mark the percussion channels
-        chip.channels[6].four_mask = 0x40;
-        chip.channels[7].four_mask = 0x40;
-        chip.channels[8].four_mask = 0x40;
+        self.channels[6].four_mask = 0x40;
+        self.channels[7].four_mask = 0x40;
+        self.channels[8].four_mask = 0x40;
 
         //clear Everything in opl3 mode
-        chip.write_reg(0x105, 0x1);
+        self.write_reg(0x105, 0x1);
         for i in 0..512 {
             if i == 0x105 {
                 continue;
             }
-            chip.write_reg(i, 0xff);
-            chip.write_reg(i, 0x00);
+            self.write_reg(i, 0xff);
+            self.write_reg(i, 0x00);
         }
-        chip.write_reg(0x105, 0x00);
+        self.write_reg(0x105, 0x00);
         //clear everything in opl2 mode
         for i in 0..255 {
-            chip.write_reg(i, 0xff);
-            chip.write_reg(i, 0x00);
+            self.write_reg(i, 0xff);
+            self.write_reg(i, 0x00);
         }
-        chip.write_reg(1, 0x20);
-        chip
+        self.write_reg(1, 0x20);
     }
 
     pub fn write_reg(&mut self, reg: u32, val: u8) {
@@ -886,6 +886,7 @@ impl Chip {
     }
 
     fn generate_block_2(&mut self, total_in: usize, mix_buffer: &mut Vec<i32>) {
+        //println!("# generate_block_2, total={}", total_in);
         mix_buffer.fill(0);
 
         let mut mix_offset = 0;
@@ -903,11 +904,12 @@ impl Chip {
             }
             total -= samples;
             mix_offset += samples;
+            println!("# end chan iter");
         }
     }
 
     fn forward_lfo(&mut self, samples: u32) -> u32 {
-        // current vibrato value, runs 4x slower than tremolo
+        //current vibrato value, runs 4x slower than tremolo
         self.vibrato_sign = VIBRATO_TABLE[(self.vibrato_index >> 2) as usize] >> 7;
         self.vibrato_shift =
             (VIBRATO_TABLE[(self.vibrato_index >> 2) as usize] & 7) as u8 + self.vibrato_strength;
