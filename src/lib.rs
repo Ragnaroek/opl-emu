@@ -237,9 +237,7 @@ impl Operator {
     }
 
     fn set_state(&mut self, s: OperatorState) {
-        if s == OperatorState::RELEASE {
-            println!("!!!! SetState(1) happening");
-        }
+        println!("#SetState, s = {}", s as u8);
         self.state = s;
         self.vol_handler = VOLUME_HANDLER_TABLE[s as usize];
     }
@@ -1161,6 +1159,7 @@ fn operator_prepare(chip: &mut Chip, channel_ix: usize, op_ix: usize) {
 
 fn operator_get_sample(op: &mut Operator, tables: &Tables, modulation: i32) -> i32 {
     let vol = operator_forward_volume(op);
+    println!("#GetSample vol={}, currLevel={}", vol, op.current_level);
     if env_silent(vol) {
         //simply forward the wave
         println!(
@@ -1189,7 +1188,12 @@ fn operator_forward_volume(op: &mut Operator) -> i32 {
 }
 
 fn operator_forward_wave(op: &mut Operator) -> u32 {
+    println!(
+        "#forward_wave: wave_index={}, wave_current={}",
+        op.wave_index, op.wave_current
+    );
     op.wave_index += op.wave_current;
+    println!("waveIndex={}", op.wave_index);
     op.wave_index >> WAVE_SH
 }
 
@@ -1418,9 +1422,11 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
     let mut vol = op.volume;
     match state {
         OperatorState::OFF => {
+            println!("template volume OFF");
             return ENV_MAX;
         }
         OperatorState::ATTACK => {
+            println!("template volume ATTACK");
             let change = operator_rate_forward(op, op.attack_add);
             if change == 0 {
                 return vol;
@@ -1435,6 +1441,10 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
         }
         OperatorState::DECAY => {
             vol += operator_rate_forward(op, op.decay_add);
+            println!(
+                "template volume DECAY, vol={}, sustain_level={}",
+                vol, op.sustain_level
+            );
             if vol >= op.sustain_level {
                 //check if we didn't overshoot max attenuation, then just go off
                 if vol >= ENV_MAX {
@@ -1442,12 +1452,13 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
                     op.set_state(OperatorState::OFF);
                     return ENV_MAX;
                 }
+                //continue as sustain
+                op.rate_index = 0;
+                op.set_state(OperatorState::SUSTAIN);
             }
-            //continue as sustain
-            op.rate_index = 0;
-            op.set_state(OperatorState::SUSTAIN);
         }
         OperatorState::SUSTAIN | OperatorState::RELEASE => {
+            println!("template volume SUSTAIN|RELEASE");
             if state == OperatorState::SUSTAIN && (op.reg_20 & MASK_SUSTAIN) != 0 {
                 return vol;
             }
