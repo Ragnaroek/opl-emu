@@ -17,8 +17,10 @@ pub fn main() {
     let mut opl = opl::new().expect("opl setup");
     opl.play(data, settings).expect("play");
 
-    std::thread::sleep(Duration::from_millis(10000));
-    println!("end");
+    let mut line = String::new();
+    let _ = std::io::stdin()
+        .read_line(&mut line)
+        .expect("Failed to read line");
 }
 
 // Assumes a 'ripped AudioT chunk' as for now

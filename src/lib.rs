@@ -259,13 +259,8 @@ enum SynthMode {
     SM3Percussion,
 }
 
-type SynthHandler = fn(
-    chip: &mut Chip,
-    channel_ix: usize,
-    samples: usize,
-    output: &mut Vec<i32>,
-    output_offset: usize,
-) -> usize;
+type SynthHandler =
+    fn(chip: &mut Chip, channel_ix: usize, samples: usize, output: &mut [i32]) -> usize;
 
 pub struct Channel {
     operator: [Operator; 2],
@@ -896,7 +891,7 @@ impl Chip {
                 count += 1;
                 let chan = &mut self.channels[chan_ptr];
                 let ch_shift =
-                    (chan.synth_handler)(self, chan_ptr, samples, mix_buffer, mix_offset);
+                    (chan.synth_handler)(self, chan_ptr, samples, &mut mix_buffer[mix_offset..]);
                 chan_ptr += ch_shift;
             }
             total -= samples;
@@ -1173,7 +1168,9 @@ fn operator_get_sample(op: &mut Operator, tables: &Tables, modulation: i32) -> i
     } else {
         let mut index = operator_forward_wave(op) as i32;
         index += modulation;
-        operator_get_wave(op, tables, index, vol)
+        let w = operator_get_wave(op, tables, index, vol);
+        println!("#GetSample, wave = {}", w);
+        w
     }
 }
 
@@ -1181,8 +1178,9 @@ fn operator_get_wave(op: &mut Operator, tables: &Tables, index: i32, vol: i32) -
     // TODO Impl DBOPL_WAVE == WAV_HANDLER and DBOP_WAVE == WAVE_TABLELOG
     // current impl is only DPOPL_WAVE == WAVE_TABLEMUL
     let wave = tables.wave_table[op.wave_base + (index & op.wave_mask as i32) as usize] as i32;
-    let mul = (tables.mul_table[(vol >> ENV_EXTRA) as usize] as i32) >> MUL_SH;
-    wave * mul
+    let mul = tables.mul_table[(vol >> ENV_EXTRA) as usize] as i32;
+    println!("#GetWave, wave_table={}, mul_table={}", wave, mul);
+    (wave * mul) >> MUL_SH
 }
 
 fn operator_forward_volume(op: &mut Operator) -> i32 {
@@ -1212,76 +1210,43 @@ fn channel_block_template_sm2fm(
     chip: &mut Chip,
     channel_ix: usize,
     samples: usize,
-    output: &mut Vec<i32>,
-    output_offset: usize,
+    output: &mut [i32],
 ) -> usize {
-    channel_block_template(
-        chip,
-        channel_ix,
-        samples,
-        output,
-        output_offset,
-        SynthMode::SM2FM,
-    )
+    channel_block_template(chip, channel_ix, samples, output, SynthMode::SM2FM)
 }
 
 fn channel_block_template_sm2percussion(
     chip: &mut Chip,
     channel_ix: usize,
     samples: usize,
-    output: &mut Vec<i32>,
-    output_offset: usize,
+    output: &mut [i32],
 ) -> usize {
-    channel_block_template(
-        chip,
-        channel_ix,
-        samples,
-        output,
-        output_offset,
-        SynthMode::SM2Percussion,
-    )
+    channel_block_template(chip, channel_ix, samples, output, SynthMode::SM2Percussion)
 }
 
 fn channel_block_template_sm3percussion(
     chip: &mut Chip,
     channel_ix: usize,
     samples: usize,
-    output: &mut Vec<i32>,
-    output_offset: usize,
+    output: &mut [i32],
 ) -> usize {
-    channel_block_template(
-        chip,
-        channel_ix,
-        samples,
-        output,
-        output_offset,
-        SynthMode::SM3Percussion,
-    )
+    channel_block_template(chip, channel_ix, samples, output, SynthMode::SM3Percussion)
 }
 
 fn channel_block_template_sm2am(
     chip: &mut Chip,
     channel_ix: usize,
     samples: usize,
-    output: &mut Vec<i32>,
-    output_offset: usize,
+    output: &mut [i32],
 ) -> usize {
-    channel_block_template(
-        chip,
-        channel_ix,
-        samples,
-        output,
-        output_offset,
-        SynthMode::SM2AM,
-    )
+    channel_block_template(chip, channel_ix, samples, output, SynthMode::SM2AM)
 }
 
 fn channel_block_template(
     chip: &mut Chip,
     channel_ix: usize,
     samples: usize,
-    output: &mut Vec<i32>,
-    output_offset: usize,
+    output: &mut [i32],
     mode: SynthMode,
 ) -> usize {
     match mode {
@@ -1324,10 +1289,10 @@ fn channel_block_template(
     for i in 0..samples {
         //early out for percussion handlers
         if mode == SynthMode::SM2Percussion {
-            channel_generate_percussion(chip, channel_ix, output, i, false);
+            channel_generate_percussion(chip, channel_ix, &mut output[i..], false);
             continue; //prevent some unitialized value bitching
         } else if mode == SynthMode::SM3Percussion {
-            channel_generate_percussion(chip, channel_ix, output, i * 2, true);
+            channel_generate_percussion(chip, channel_ix, &mut output[(i * 2)..], true);
             continue; //prevent some unitialized value bitching
         }
 
@@ -1365,6 +1330,7 @@ fn channel_block_template(
         }
         match mode {
             SynthMode::SM2AM | SynthMode::SM2FM => {
+                println!("sm2: output[{}]+={}", i, sample);
                 output[i] += sample;
             }
             SynthMode::SM3AM
@@ -1373,6 +1339,11 @@ fn channel_block_template(
             | SynthMode::SM3AMFM
             | SynthMode::SM3FMAM
             | SynthMode::SM3AMAM => {
+                println!(
+                    "sm3: output[{}]+={}",
+                    i * 2 + 0,
+                    sample & chip.channels[channel_ix].mask_left as i32
+                );
                 output[i * 2 + 0] += sample & chip.channels[channel_ix].mask_left as i32;
                 output[i * 2 + 1] += sample & chip.channels[channel_ix].mask_right as i32;
             }
@@ -1391,8 +1362,7 @@ fn channel_block_template(
 fn channel_generate_percussion(
     chip: &mut Chip,
     channel_ix: usize,
-    output: &mut Vec<i32>,
-    output_offset: usize,
+    output: &mut [i32],
     opl3_mode: bool,
 ) {
     todo!("channel_generate_percussion");

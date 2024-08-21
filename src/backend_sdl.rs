@@ -76,10 +76,7 @@ impl OPL {
                 desired_spec.samples,
                 device.spec().size
             );*/
-
             self.device = Some(device);
-        } else {
-            println!("### device set");
         }
     }
 }
@@ -181,8 +178,8 @@ fn opl_update(
     len: usize,
     mix_buffer: &mut Vec<i32>,
 ) {
-    //println!("\n\ncall_count = {}", chip.call_count);
-    let debug_count = 60;
+    println!("\n\ncall_count = {}", chip.call_count);
+    let debug_count = 5000;
 
     chip.generate_block_2(len, mix_buffer);
 
@@ -190,7 +187,9 @@ fn opl_update(
     let mut out_ptr = offset;
     for _ in 0..len {
         let mix = (mix_buffer[mix_ptr] << 2) as i16; // increase volume a bit
+        mix_ptr += 1;
 
+        println!("mix={}", mix);
         /*
         if chip.call_count == debug_count {
             println!("mix = {}", mix);
@@ -201,18 +200,15 @@ fn opl_update(
             panic!("exit");
         }*/
 
-        mix_ptr += 1;
-
         sdl_out[out_ptr] = mix;
         out_ptr += 1;
         sdl_out[out_ptr] = mix;
         out_ptr += 1;
     }
 
-    /*
     if chip.call_count == debug_count {
         panic!("exit");
-    }*/
+    }
 
     chip.call_count += 1;
 }
