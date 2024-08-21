@@ -1,6 +1,6 @@
 use opl;
 
-use std::{env, fs::File, io::Read, os::unix::fs::FileExt, time::Duration};
+use std::{env, fs::File, io::Read, os::unix::fs::FileExt};
 
 pub fn main() {
     let args: Vec<String> = env::args().collect();

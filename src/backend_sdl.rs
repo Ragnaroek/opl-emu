@@ -70,12 +70,6 @@ impl OPL {
                     }
                 })
                 .expect("playback open failed");
-            /*
-            println!(
-                "## samples = {:?}, size={}",
-                desired_spec.samples,
-                device.spec().size
-            );*/
             self.device = Some(device);
         }
     }
@@ -102,15 +96,9 @@ impl AudioCallback for OPLCallback {
 
     fn callback(&mut self, out: &mut [i16]) {
         let mut samples_len = out.len() as u32 >> 1;
-        println!(
-            "### callback, len = {}, sampleslen = {}",
-            out.len(),
-            samples_len
-        );
         let mut out_offset = 0;
 
         loop {
-            println!("num_ready_samples = {}", self.num_ready_samples);
             if self.num_ready_samples > 0 {
                 if self.num_ready_samples < samples_len {
                     opl_update(
@@ -178,9 +166,6 @@ fn opl_update(
     len: usize,
     mix_buffer: &mut Vec<i32>,
 ) {
-    println!("\n\ncall_count = {}", chip.call_count);
-    let debug_count = 5000;
-
     chip.generate_block_2(len, mix_buffer);
 
     let mut mix_ptr = 0;
@@ -189,26 +174,9 @@ fn opl_update(
         let mix = (mix_buffer[mix_ptr] << 2) as i16; // increase volume a bit
         mix_ptr += 1;
 
-        println!("mix={}", mix);
-        /*
-        if chip.call_count == debug_count {
-            println!("mix = {}", mix);
-        }
-
-        if mix != 0 {
-            println!("mix = {}", mix);
-            panic!("exit");
-        }*/
-
         sdl_out[out_ptr] = mix;
         out_ptr += 1;
         sdl_out[out_ptr] = mix;
         out_ptr += 1;
     }
-
-    if chip.call_count == debug_count {
-        panic!("exit");
-    }
-
-    chip.call_count += 1;
 }

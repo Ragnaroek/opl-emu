@@ -107,8 +107,6 @@ pub struct Chip {
     opl3_active: u8,
 
     tables: Tables,
-    //debug
-    call_count: u32,
 }
 
 pub struct ChipValues {
@@ -204,17 +202,8 @@ impl Operator {
             ksr: 0,
         };
         op.set_state(OperatorState::OFF);
-        //println!("rate_zero = {}", op.rate_zero);
         op
     }
-    /*
-    static void Operator__Operator(Operator *self) {
-    self->freqMul = 0;
-    self->waveIndex = 0;
-    Operator__SetState( self, OFF );
-    self->volume = ENV_MAX;
-    }
-    */
 
     fn key_on(&mut self, mask: u8) {
         if self.key_on == 0 {
@@ -237,7 +226,6 @@ impl Operator {
     }
 
     fn set_state(&mut self, s: OperatorState) {
-        println!("#SetState, s = {}", s as u8);
         self.state = s;
         self.vol_handler = VOLUME_HANDLER_TABLE[s as usize];
     }
@@ -300,12 +288,6 @@ impl Channel {
 
     fn set_chan_data(&mut self, tables: &Tables, data: u32) {
         let change = self.chan_data ^ data;
-        println!(
-            "#set_chan_data, change={}, ksl={}, keycode={}",
-            change,
-            change & (0xff << SHIFT_KSLBASE),
-            change & (0xff << SHIFT_KEYCODE)
-        );
         self.chan_data = data;
         self.op(0).chan_data = data;
         self.op(1).chan_data = data;
@@ -476,7 +458,6 @@ fn init_tables(scale: f64) -> Tables {
             }
         }
         attack_rates[i as usize] = best_add;
-        //panic!("stop")
     }
     for i in 62..76 {
         attack_rates[i] = 8 << RATE_SH;
@@ -574,7 +555,6 @@ impl Chip {
             wave_form_mask: 0,
             opl3_active: 0,
             tables: init_tables(scale),
-            call_count: 0,
         }
     }
 
@@ -617,7 +597,6 @@ impl Chip {
     }
 
     pub fn write_reg(&mut self, reg: u32, val: u8) {
-        println!("## reg = {:x}, val = {:x}", reg, val);
         match reg & 0xf0 {
             0x00 => {
                 if reg == 0x01 {
@@ -735,7 +714,6 @@ impl Chip {
     ) {
         let ix = ((reg >> 3) & 0x20) | (reg & 0x1f);
         if let Some(offset) = &self.tables.op_offset_table[ix as usize] {
-            println!("index={}, channel {}, op {}", ix, offset.chan, offset.op);
             let op = &mut self.channels[offset.chan].operator[offset.op];
             let chip_values = ChipValues {
                 wave_form_mask: self.wave_form_mask,
@@ -798,7 +776,6 @@ impl Chip {
     }
 
     fn channel_write_b0(&mut self, offset: usize, val: u8) {
-        println!("#channel_writeB0");
         let channels = if offset == (NUM_CHANNELS - 1) {
             &mut self.channels[offset..(offset + 1)]
         } else {
@@ -836,7 +813,6 @@ impl Chip {
                 channels[1].op(1).key_off(1);
             }
         }
-        println!("#end channel_writeB0");
     }
 
     fn regchan_write_c0(&mut self, reg: u32, val: u8) {
@@ -878,7 +854,6 @@ impl Chip {
     }
 
     fn generate_block_2(&mut self, total_in: usize, mix_buffer: &mut Vec<i32>) {
-        //println!("# generate_block_2, total={}", total_in);
         mix_buffer.fill(0);
 
         let mut mix_offset = 0;
@@ -886,9 +861,7 @@ impl Chip {
         while total != 0 {
             let samples = self.forward_lfo(total as u32) as usize;
             let mut chan_ptr = 0;
-            let mut count = 0;
             while chan_ptr < 9 {
-                count += 1;
                 let chan = &mut self.channels[chan_ptr];
                 let ch_shift =
                     (chan.synth_handler)(self, chan_ptr, samples, &mut mix_buffer[mix_offset..]);
@@ -896,7 +869,6 @@ impl Chip {
             }
             total -= samples;
             mix_offset += samples;
-            println!("# end chan iter");
         }
     }
 
@@ -977,7 +949,6 @@ fn operator_write_20(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8
 }
 
 fn operator_write_40(op: &mut Operator, _: &Tables, _: &ChipValues, val: u8) {
-    println!("operator_write_40");
     if (op.reg_40 ^ val) == 0 {
         return;
     }
@@ -1023,11 +994,6 @@ fn operator_write_e0(op: &mut Operator, tables: &Tables, chip: &ChipValues, val:
     op.wave_base = WAVE_BASE_TABLE[wave_form];
     op.wave_start = (WAVE_START_TABLE[wave_form] as u32) << WAVE_SH;
     op.wave_mask = WAVE_MASK_TABLE[wave_form] as u32;
-
-    println!(
-        "#e0, wave_start={}, wave_form={}, wave_form_mask={}, opl3_active={:x}",
-        op.wave_start, wave_form, chip.wave_form_mask, chip.opl3_active
-    );
 }
 
 fn operator_update_rates(op: &mut Operator, tables: &Tables) {
@@ -1063,7 +1029,6 @@ fn operator_update_frequency(op: &mut Operator) {
 
 fn operator_update_release(op: &mut Operator, tables: &Tables) {
     let rate = op.reg_80 & 0xf;
-    println!("release, rate = {}", rate);
     if rate != 0 {
         let val = (rate << 2) + op.ksr;
         op.release_add = tables.linear_rates[val as usize];
@@ -1078,7 +1043,6 @@ fn operator_update_release(op: &mut Operator, tables: &Tables) {
             op.rate_zero |= 1 << OperatorState::SUSTAIN as u8;
         }
     }
-    println!("rate_zero_release = {}", op.rate_zero);
 }
 
 fn operator_update_decay(op: &mut Operator, tables: &Tables) {
@@ -1091,12 +1055,10 @@ fn operator_update_decay(op: &mut Operator, tables: &Tables) {
         op.decay_add = 0;
         op.rate_zero |= 1 << OperatorState::DECAY as u8;
     }
-    println!("rate_zero_decay = {}", op.rate_zero);
 }
 
 fn operator_update_attack(op: &mut Operator, tables: &Tables) {
     let rate = op.reg_60 >> 4;
-    println!("rate_zero0 = {}", op.rate_zero);
     if rate != 0 {
         let val = (rate << 2) + op.ksr;
         op.attack_add = tables.attack_rates[val as usize];
@@ -1105,11 +1067,9 @@ fn operator_update_attack(op: &mut Operator, tables: &Tables) {
         op.attack_add = 0;
         op.rate_zero |= 1 << OperatorState::ATTACK as u8;
     }
-    println!("rate_zero = {}", op.rate_zero);
 }
 
 fn operator_update_attenuation(op: &mut Operator) {
-    println!("#operator_update_attenuation, reg40={}", op.reg_40);
     let ksl_base = ((op.chan_data >> SHIFT_KSLBASE) & 0xFF) as i32;
     let tl = (op.reg_40 & 0x3f) as i32;
     let ksl_shift = KSL_SHIFT_TABLE[(op.reg_40 >> 6) as usize];
@@ -1117,22 +1077,13 @@ fn operator_update_attenuation(op: &mut Operator) {
     //make sure the attenuation goes to the right bits
     op.total_level = tl << ((ENV_BITS - 7) as u8); //total level goes 2 bits below max
     op.total_level += (ksl_base << ENV_EXTRA) >> ksl_shift;
-    println!("##totalLevel = {}", op.total_level);
 }
 
 fn operator_silent(op: &Operator) -> bool {
-    println!(
-        "#### total_level = {}, volume = {}",
-        op.total_level, op.volume,
-    );
-
     if !env_silent(op.total_level + op.volume) {
         return false;
     }
-    println!("t = {}", (op.rate_zero & (1 << op.state as u8)));
-    println!("rate zero = {}, state = {}", op.rate_zero, op.state as u8);
     if (op.rate_zero & (1 << op.state as u8)) == 0 {
-        println!("rate zero = {}, state = {}", op.rate_zero, op.state as u8);
         return false;
     }
     true
@@ -1148,29 +1099,20 @@ fn operator_prepare(chip: &mut Chip, channel_ix: usize, op_ix: usize) {
         let neg = chip.vibrato_sign as i32;
         //negate the add with -1 or 0
         add = (add ^ neg) - neg;
-        println!("#prepare, wave_current={}, add={}", op.wave_current, add);
         op.wave_current = op.wave_current.wrapping_add_signed(add);
-        println!("wave_current={}", op.wave_current);
     }
 }
 
 fn operator_get_sample(op: &mut Operator, tables: &Tables, modulation: i32) -> i32 {
     let vol = operator_forward_volume(op);
-    println!("#GetSample vol={}, currLevel={}", vol, op.current_level);
     if env_silent(vol) {
         //simply forward the wave
-        println!(
-            "#GetSample waveIndex={}, waveCurrent={}",
-            op.wave_index, op.wave_current,
-        );
         (op.wave_index, _) = op.wave_index.overflowing_add(op.wave_current);
         0
     } else {
         let mut index = operator_forward_wave(op) as i32;
         index += modulation;
-        let w = operator_get_wave(op, tables, index, vol);
-        println!("#GetSample, wave = {}", w);
-        w
+        operator_get_wave(op, tables, index, vol)
     }
 }
 
@@ -1179,7 +1121,6 @@ fn operator_get_wave(op: &mut Operator, tables: &Tables, index: i32, vol: i32) -
     // current impl is only DPOPL_WAVE == WAVE_TABLEMUL
     let wave = tables.wave_table[op.wave_base + (index & op.wave_mask as i32) as usize] as i32;
     let mul = tables.mul_table[(vol >> ENV_EXTRA) as usize] as i32;
-    println!("#GetWave, wave_table={}, mul_table={}", wave, mul);
     (wave * mul) >> MUL_SH
 }
 
@@ -1188,12 +1129,7 @@ fn operator_forward_volume(op: &mut Operator) -> i32 {
 }
 
 fn operator_forward_wave(op: &mut Operator) -> u32 {
-    println!(
-        "#forward_wave: wave_index={}, wave_current={}",
-        op.wave_index, op.wave_current
-    );
     (op.wave_index, _) = op.wave_index.overflowing_add(op.wave_current);
-    println!("waveIndex={}", op.wave_index);
     op.wave_index >> WAVE_SH
 }
 
@@ -1251,7 +1187,6 @@ fn channel_block_template(
 ) -> usize {
     match mode {
         SynthMode::SM2AM | SynthMode::SM3AM => {
-            println!("## synth_handler = sm2AM|sm3AM");
             if operator_silent(&chip.channels[channel_ix].operator[0])
                 && operator_silent(&chip.channels[channel_ix].operator[1])
             {
@@ -1261,14 +1196,11 @@ fn channel_block_template(
             }
         }
         SynthMode::SM2FM | SynthMode::SM3FM => {
-            println!("## synth_handler = sm2FM|sm3FM");
             if operator_silent(&chip.channels[channel_ix].operator[1]) {
-                println!("### op silent");
                 chip.channels[channel_ix].old[0] = 0;
                 chip.channels[channel_ix].old[1] = 0;
                 return 1;
             }
-            println!("### op not silent");
         }
         _ => todo!("block template {:?}", mode),
     }
@@ -1330,7 +1262,6 @@ fn channel_block_template(
         }
         match mode {
             SynthMode::SM2AM | SynthMode::SM2FM => {
-                println!("sm2: output[{}]+={}", i, sample);
                 output[i] += sample;
             }
             SynthMode::SM3AM
@@ -1339,11 +1270,6 @@ fn channel_block_template(
             | SynthMode::SM3AMFM
             | SynthMode::SM3FMAM
             | SynthMode::SM3AMAM => {
-                println!(
-                    "sm3: output[{}]+={}",
-                    i * 2 + 0,
-                    sample & chip.channels[channel_ix].mask_left as i32
-                );
                 output[i * 2 + 0] += sample & chip.channels[channel_ix].mask_left as i32;
                 output[i * 2 + 1] += sample & chip.channels[channel_ix].mask_right as i32;
             }
@@ -1394,11 +1320,9 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
     let mut vol = op.volume;
     match state {
         OperatorState::OFF => {
-            println!("template volume OFF");
             return ENV_MAX;
         }
         OperatorState::ATTACK => {
-            println!("template volume ATTACK");
             let change = operator_rate_forward(op, op.attack_add);
             if change == 0 {
                 return vol;
@@ -1413,10 +1337,6 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
         }
         OperatorState::DECAY => {
             vol += operator_rate_forward(op, op.decay_add);
-            println!(
-                "template volume DECAY, vol={}, sustain_level={}",
-                vol, op.sustain_level
-            );
             if vol >= op.sustain_level {
                 //check if we didn't overshoot max attenuation, then just go off
                 if vol >= ENV_MAX {
@@ -1430,13 +1350,9 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
             }
         }
         OperatorState::SUSTAIN | OperatorState::RELEASE => {
-            if state == OperatorState::SUSTAIN {
-                println!("template volume SUSTAIN");
-            }
             if state == OperatorState::SUSTAIN && (op.reg_20 & MASK_SUSTAIN) != 0 {
                 return vol;
             }
-            println!("template volume RELEASE");
             vol += operator_rate_forward(op, op.release_add);
             if vol >= ENV_MAX {
                 op.volume = ENV_MAX;
