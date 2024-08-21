@@ -209,9 +209,10 @@ fn opl_update(
         out_ptr += 1;
     }
 
+    /*
     if chip.call_count == debug_count {
         panic!("exit");
-    }
+    }*/
 
     chip.call_count += 1;
 }

@@ -1153,7 +1153,9 @@ fn operator_prepare(chip: &mut Chip, channel_ix: usize, op_ix: usize) {
         let neg = chip.vibrato_sign as i32;
         //negate the add with -1 or 0
         add = (add ^ neg) - neg;
-        op.wave_current += add as u32;
+        println!("#prepare, wave_current={}, add={}", op.wave_current, add);
+        op.wave_current = op.wave_current.wrapping_add_signed(add);
+        println!("wave_current={}", op.wave_current);
     }
 }
 
