@@ -1166,7 +1166,7 @@ fn operator_get_sample(op: &mut Operator, tables: &Tables, modulation: i32) -> i
             "#GetSample waveIndex={}, waveCurrent={}",
             op.wave_index, op.wave_current,
         );
-        op.wave_index += op.wave_current;
+        (op.wave_index, _) = op.wave_index.overflowing_add(op.wave_current);
         0
     } else {
         let mut index = operator_forward_wave(op) as i32;
@@ -1192,7 +1192,7 @@ fn operator_forward_wave(op: &mut Operator) -> u32 {
         "#forward_wave: wave_index={}, wave_current={}",
         op.wave_index, op.wave_current
     );
-    op.wave_index += op.wave_current;
+    (op.wave_index, _) = op.wave_index.overflowing_add(op.wave_current);
     println!("waveIndex={}", op.wave_index);
     op.wave_index >> WAVE_SH
 }
@@ -1458,10 +1458,13 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
             }
         }
         OperatorState::SUSTAIN | OperatorState::RELEASE => {
-            println!("template volume SUSTAIN|RELEASE");
+            if state == OperatorState::SUSTAIN {
+                println!("template volume SUSTAIN");
+            }
             if state == OperatorState::SUSTAIN && (op.reg_20 & MASK_SUSTAIN) != 0 {
                 return vol;
             }
+            println!("template volume RELEASE");
             vol += operator_rate_forward(op, op.release_add);
             if vol >= ENV_MAX {
                 op.volume = ENV_MAX;
