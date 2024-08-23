@@ -1,8 +1,11 @@
-#![cfg_attr(not(feature = "sdl"), no_std)]
+#![cfg_attr(not(any(feature = "sdl", feature = "filedb")), no_std)]
 
 #[cfg(test)]
 #[path = "./lib_test.rs"]
 mod lib_test;
+
+#[cfg(feature = "filedb")]
+pub mod file_db_w3d;
 
 use core::array::from_fn;
 use std::f64::consts::PI;
