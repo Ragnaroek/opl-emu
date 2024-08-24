@@ -1,5 +1,5 @@
+use clap::Parser;
 use opl::file_db_w3d::{read_music_track, read_w3d_header};
-
 use std::{
     env,
     fs::File,
@@ -9,14 +9,22 @@ use std::{
     str::FromStr,
 };
 
-pub fn main() -> Result<(), String> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        print_usage(&args[0]);
-        return Err("wrong usage".to_string());
-    }
+#[derive(Parser)]
+struct Cli {
+    /// Path to the folder that contains the game files or
+    /// a OPL file to play. If no path is supplied the cwd is taken.
+    path: Option<std::path::PathBuf>,
+}
 
-    let path = PathBuf::from_str(&args[1]).map_err(|e| e.to_string())?;
+pub fn main() -> Result<(), String> {
+    let args = Cli::parse();
+
+    let path = if let Some(path) = args.path {
+        path
+    } else {
+        env::current_dir().map_err(|e| e.to_string())?
+    };
+
     let track_data = if path.is_dir() {
         let headers = read_w3d_header(&path.join("AUDIOHED.WL6"))?;
         read_music_track(&headers, &path.join("AUDIOT.WL6"), 0)?
@@ -52,9 +60,4 @@ fn read_file(file: &Path) -> Vec<u8> {
     let mut bytes = vec![0; size];
     file.read_exact_at(&mut bytes, 2).expect("read data");
     bytes
-}
-
-fn print_usage(arg_0: &str) {
-    println!("Usage:");
-    println!("{} <file>", arg_0);
 }

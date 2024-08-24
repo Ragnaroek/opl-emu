@@ -10,13 +10,21 @@ repository = "https://github.com/Ragnaroek/opl-emu"
 name = "opl"
 
 [[bin]]
-name = "player"
+name = "opl-player"
 path = "src/bin/player/main.rs"
+required-features = ["extract-bin"]
+
+[[bin]]
+name = "opl-extract"
+path = "src/bin/extract/main.rs"
+required-features = ["extract-bin"]
 
 [features]
 sdl = ["dep:sdl2"]
 filedb = []
+extract-bin = ["dep:clap"]
 
 [dependencies]
 sdl2 = { version = "0.37.0", optional = true, default-features = false, features = [
 ] }
+clap = { version = "4.5.16", optional = true, features = ["derive"] }
