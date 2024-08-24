@@ -21,7 +21,7 @@ required-features = ["extract-bin"]
 
 [features]
 sdl = ["dep:sdl2"]
-filedb = []
+catalog = []
 extract-bin = ["dep:clap"]
 player-bin = ["dep:clap", "dep:ratatui"]
 

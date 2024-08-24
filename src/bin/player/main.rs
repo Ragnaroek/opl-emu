@@ -1,5 +1,5 @@
 use clap::Parser;
-use opl::file_db_w3d::{read_music_track, read_w3d_header};
+use opl::catalog::w3d::{read_music_track, read_w3d_header};
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode, KeyEventKind},
