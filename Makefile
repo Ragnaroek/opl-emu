@@ -8,7 +8,7 @@ test:
 
 # player
 run-player:
-	@cargo run --bin opl-player --features sdl,filedb,extract-bin -- /Users/michaelbohn/_w3d/w3d_data #./testdata/test.wlf
+	@cargo run --bin opl-player --features sdl,filedb,player-bin -- /Users/michaelbohn/_w3d/w3d_data #./testdata/test.wlf
 
 # extract
 build-extract:

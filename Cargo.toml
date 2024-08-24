@@ -12,7 +12,7 @@ name = "opl"
 [[bin]]
 name = "opl-player"
 path = "src/bin/player/main.rs"
-required-features = ["extract-bin"]
+required-features = ["player-bin"]
 
 [[bin]]
 name = "opl-extract"
@@ -23,8 +23,10 @@ required-features = ["extract-bin"]
 sdl = ["dep:sdl2"]
 filedb = []
 extract-bin = ["dep:clap"]
+player-bin = ["dep:clap", "dep:ratatui"]
 
 [dependencies]
 sdl2 = { version = "0.37.0", optional = true, default-features = false, features = [
 ] }
 clap = { version = "4.5.16", optional = true, features = ["derive"] }
+ratatui = { version = "0.28.0", optional = true }
