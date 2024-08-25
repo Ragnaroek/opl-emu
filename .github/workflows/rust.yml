@@ -27,4 +27,4 @@ jobs:
       - name: Build SDL
         run: cargo build --features sdl --verbose
       - name: Run tests SDL
-        run: cargo test --features sdl,filedb --verbose
+        run: cargo test --features sdl,catalog --verbose
