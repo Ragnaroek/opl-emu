@@ -1,5 +1,6 @@
 use clap::Parser;
 use opl::catalog::w3d::GAME_MODULE;
+use opl::catalog::CATALOGED_GAMES;
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode, KeyEventKind},
@@ -26,27 +27,13 @@ struct Cli {
     path: Option<std::path::PathBuf>,
 }
 
-struct Track {
-    name: String,
-}
-
-struct TrackList {
-    track_state: ListState,
-    tracks: Vec<Track>,
-}
-
-struct Game {
-    name: String,
-    track_list: TrackList,
-}
-
-struct GameList {
+struct State {
     game_state: ListState,
-    games: Vec<Game>,
+    track_state: ListState,
 }
 
 struct App {
-    game_list: GameList,
+    state: State,
 }
 
 pub fn main() -> Result<(), String> {
@@ -82,52 +69,9 @@ pub fn main() -> Result<(), String> {
 impl App {
     fn new() -> App {
         App {
-            game_list: GameList {
+            state: State {
                 game_state: ListState::default(),
-                games: vec![
-                    Game {
-                        name: "Wolfenstein 3D (1992)".to_string(),
-                        track_list: TrackList {
-                            track_state: ListState::default(),
-                            tracks: vec![
-                                Track {
-                                    name: "Track 01".to_string(),
-                                },
-                                Track {
-                                    name: "Track 02".to_string(),
-                                },
-                            ],
-                        },
-                    },
-                    Game {
-                        name: "Duke Nukem (1996)".to_string(),
-                        track_list: TrackList {
-                            track_state: ListState::default(),
-                            tracks: vec![
-                                Track {
-                                    name: "Track 01".to_string(),
-                                },
-                                Track {
-                                    name: "Track 02".to_string(),
-                                },
-                            ],
-                        },
-                    },
-                    Game {
-                        name: "Shadowcaster (1994)".to_string(),
-                        track_list: TrackList {
-                            track_state: ListState::default(),
-                            tracks: vec![
-                                Track {
-                                    name: "Track 01".to_string(),
-                                },
-                                Track {
-                                    name: "Track 02".to_string(),
-                                },
-                            ],
-                        },
-                    },
-                ],
+                track_state: ListState::default(),
             },
         }
     }
@@ -140,8 +84,12 @@ impl App {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
-                        KeyCode::Char('k') | KeyCode::Up => self.game_list.previous(),
-                        KeyCode::Char('j') | KeyCode::Down => self.game_list.next(),
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            list_previous(&mut self.state.game_state, CATALOGED_GAMES.len())
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            list_next(&mut self.state.game_state, CATALOGED_GAMES.len())
+                        }
                         _ => {}
                     }
                 }
@@ -169,15 +117,16 @@ impl Widget for &mut App {
             .render(playback_area, buf);
 
         let game_list = List::new(
-            self.game_list
-                .games
+            CATALOGED_GAMES
                 .iter()
-                .map(|track| track.name.clone())
-                .collect::<Vec<String>>(),
+                .map(|game| game.metadata.name)
+                .collect::<Vec<&'static str>>(),
         )
         .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
         .block(Block::bordered().title("Games"));
-        StatefulWidget::render(game_list, game_area, buf, &mut self.game_list.game_state);
+        StatefulWidget::render(game_list, game_area, buf, &mut self.state.game_state);
+
+        // TODO Render track_list depending on self.state.game_state.selected()
 
         let track_list = List::new(Vec::<String>::new())
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
@@ -187,34 +136,32 @@ impl Widget for &mut App {
     }
 }
 
-impl GameList {
-    fn previous(&mut self) {
-        let i = match self.game_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.games.len() - 1
-                } else {
-                    i - 1
-                }
+fn list_previous(list_state: &mut ListState, max_len: usize) {
+    let i = match list_state.selected() {
+        Some(i) => {
+            if i == 0 {
+                max_len - 1
+            } else {
+                i - 1
             }
-            None => 0,
-        };
-        self.game_state.select(Some(i));
-    }
+        }
+        None => 0,
+    };
+    list_state.select(Some(i));
+}
 
-    fn next(&mut self) {
-        let i = match self.game_state.selected() {
-            Some(i) => {
-                if i >= self.games.len() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
+fn list_next(list_state: &mut ListState, max_len: usize) {
+    let i = match list_state.selected() {
+        Some(i) => {
+            if i >= max_len - 1 {
+                0
+            } else {
+                i + 1
             }
-            None => 0,
-        };
-        self.game_state.select(Some(i));
-    }
+        }
+        None => 0,
+    };
+    list_state.select(Some(i));
 }
 
 fn opl(track_data: Vec<u8>) {
