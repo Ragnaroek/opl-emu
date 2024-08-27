@@ -1,5 +1,5 @@
 use clap::Parser;
-use opl::catalog::w3d::{read_music_track, read_w3d_header};
+use opl::catalog::w3d::GAME_MODULE;
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode, KeyEventKind},
@@ -59,8 +59,7 @@ pub fn main() -> Result<(), String> {
     };
 
     let track_data = if path.is_dir() {
-        let headers = read_w3d_header(&path.join("AUDIOHED.WL6"))?;
-        read_music_track(&headers, &path.join("AUDIOT.WL6"), 3)?
+        (GAME_MODULE.track_loader)(&path, 4)?
     } else {
         read_file(&path)
     };
