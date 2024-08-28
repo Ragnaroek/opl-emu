@@ -126,13 +126,20 @@ impl Widget for &mut App {
         .block(Block::bordered().title("Games"));
         StatefulWidget::render(game_list, game_area, buf, &mut self.state.game_state);
 
-        // TODO Render track_list depending on self.state.game_state.selected()
+        let track_list = if let Some(selected) = self.state.game_state.selected() {
+            let tracks = &CATALOGED_GAMES[selected].metadata.tracks;
+            tracks
+                .iter()
+                .map(|track| track.name)
+                .collect::<Vec<&'static str>>()
+        } else {
+            Vec::<&'static str>::new()
+        };
 
-        let track_list = List::new(Vec::<String>::new())
+        let track_list = List::new(track_list)
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
             .block(Block::bordered().title("Tracks"));
-        Widget::render(track_list, track_area, buf);
-        //StatefulWidget::render(track_list, track_area, buf, &mut self.game_list.games[0].track_state);
+        StatefulWidget::render(track_list, track_area, buf, &mut self.state.track_state);
     }
 }
 
