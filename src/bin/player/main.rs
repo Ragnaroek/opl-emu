@@ -1,6 +1,6 @@
 use clap::Parser;
-use opl::catalog::w3d::GAME_MODULE;
-use opl::catalog::CATALOGED_GAMES;
+use opl::backend_sdl::OPL;
+use opl::catalog::{GameModule, Track, CATALOGED_GAMES};
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode, KeyEventKind},
@@ -8,17 +8,17 @@ use ratatui::{
         ExecutableCommand,
     },
     prelude::*,
-    widgets::{Block, Borders, List, ListState, Paragraph},
+    style::palette::tailwind::SLATE,
+    widgets::{Block, List, ListState, Paragraph},
 };
-use std::io::stdout;
-use std::{
-    env,
-    fs::File,
-    io::{self, Read},
-    os::unix::fs::FileExt,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::io::{self, stdout};
+use std::path::Path;
+
+const FOCUS_SELECTED_STYLE: Style = Style::new()
+    .bg(SLATE.c100)
+    .fg(SLATE.c950)
+    .add_modifier(Modifier::BOLD);
+const UNFOCUS_SELECTED_STYLE: Style = Style::new().bg(SLATE.c500).add_modifier(Modifier::BOLD);
 
 #[derive(Parser)]
 struct Cli {
@@ -27,9 +27,17 @@ struct Cli {
     path: Option<std::path::PathBuf>,
 }
 
+struct PlayState {
+    game: &'static GameModule,
+    track: &'static Track,
+}
+
 struct State {
     game_state: ListState,
     track_state: ListState,
+    focus_state: Focused,
+    play_state: Option<PlayState>,
+    opl: OPL,
 }
 
 struct App {
@@ -39,25 +47,14 @@ struct App {
 pub fn main() -> Result<(), String> {
     let args = Cli::parse();
 
-    let path = if let Some(path) = args.path {
-        path
-    } else {
-        env::current_dir().map_err(|e| e.to_string())?
-    };
-
-    let track_data = if path.is_dir() {
-        (GAME_MODULE.track_loader)(&path, 4)?
-    } else {
-        read_file(&path)
-    };
-
     enable_raw_mode().map_err(|e| e.to_string())?;
     stdout()
         .execute(EnterAlternateScreen)
         .map_err(|e| e.to_string())?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).map_err(|e| e.to_string())?;
+    let terminal = Terminal::new(CrosstermBackend::new(stdout())).map_err(|e| e.to_string())?;
 
-    App::new().run(terminal).map_err(|e| e.to_string())?;
+    let opl = opl::new()?;
+    App::new(opl).run(terminal).map_err(|e| e.to_string())?;
 
     disable_raw_mode().map_err(|e| e.to_string())?;
     stdout()
@@ -66,12 +63,21 @@ pub fn main() -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Copy, Clone, PartialEq)]
+enum Focused {
+    GameList,
+    TrackList,
+}
+
 impl App {
-    fn new() -> App {
+    fn new(opl: OPL) -> App {
         App {
             state: State {
                 game_state: ListState::default(),
                 track_state: ListState::default(),
+                focus_state: Focused::GameList,
+                opl,
+                play_state: None,
             },
         }
     }
@@ -85,10 +91,69 @@ impl App {
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('k') | KeyCode::Up => {
-                            list_previous(&mut self.state.game_state, CATALOGED_GAMES.len())
+                            if self.state.focus_state == Focused::GameList {
+                                list_previous(&mut self.state.game_state, CATALOGED_GAMES.len())
+                            } else {
+                                if let Some(game_selected) = self.state.game_state.selected() {
+                                    let len = CATALOGED_GAMES[game_selected].metadata.tracks.len();
+                                    list_previous(&mut self.state.track_state, len)
+                                }
+                            }
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
-                            list_next(&mut self.state.game_state, CATALOGED_GAMES.len())
+                            if self.state.focus_state == Focused::GameList {
+                                list_next(&mut self.state.game_state, CATALOGED_GAMES.len())
+                            } else {
+                                if let Some(game_selected) = self.state.game_state.selected() {
+                                    let len = CATALOGED_GAMES[game_selected].metadata.tracks.len();
+                                    list_next(&mut self.state.track_state, len)
+                                }
+                            }
+                        }
+                        KeyCode::Tab => {
+                            if self.state.focus_state == Focused::GameList {
+                                self.state.focus_state = Focused::TrackList;
+                                self.state.track_state.select(Some(0));
+                            } else {
+                                self.state.focus_state = Focused::GameList;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if self.state.focus_state == Focused::GameList {
+                                if let Some(game_selected) = self.state.game_state.selected() {
+                                    self.state.play_state = Some(PlayState {
+                                        track: &CATALOGED_GAMES[game_selected].metadata.tracks[0],
+                                        game: CATALOGED_GAMES[game_selected],
+                                    });
+                                }
+                            } else {
+                                if let Some(game_selected) = self.state.game_state.selected() {
+                                    if let Some(track_selected) = self.state.track_state.selected()
+                                    {
+                                        self.state.play_state = Some(PlayState {
+                                            track: &CATALOGED_GAMES[game_selected].metadata.tracks
+                                                [track_selected],
+                                            game: CATALOGED_GAMES[game_selected],
+                                        });
+                                    }
+                                }
+                            }
+
+                            if let Some(play_state) = &self.state.play_state {
+                                // TODO remove hard-coded path and replace it with a config/scan result
+                                // TODO Take OPL_Settings from GameModule config?
+                                // TODO Remove expected and update playState with error
+                                let settings = opl::OPLSettings {
+                                    mixer_rate: 49716,
+                                    imf_clock_rate: 0,
+                                };
+                                let track_data = (play_state.game.track_loader)(
+                                    Path::new("/Users/michaelbohn/_w3d/w3d_data"),
+                                    play_state.track.no,
+                                )
+                                .expect("load track data");
+                                self.state.opl.play(track_data, settings).expect("opl play");
+                            }
                         }
                         _ => {}
                     }
@@ -112,7 +177,13 @@ impl Widget for &mut App {
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .areas(bottom_area);
 
-        Paragraph::new("TODO fill playback")
+        let playback_str = if let Some(play_state) = &self.state.play_state {
+            "Playing: ".to_string() + play_state.track.name
+        } else {
+            "Nothing selected to play".to_string()
+        };
+
+        Paragraph::new(playback_str)
             .block(Block::bordered().title("Playback"))
             .render(playback_area, buf);
 
@@ -122,7 +193,7 @@ impl Widget for &mut App {
                 .map(|game| game.metadata.name)
                 .collect::<Vec<&'static str>>(),
         )
-        .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+        .highlight_style(highlight_style(Focused::GameList, self.state.focus_state))
         .block(Block::bordered().title("Games"));
         StatefulWidget::render(game_list, game_area, buf, &mut self.state.game_state);
 
@@ -137,9 +208,17 @@ impl Widget for &mut App {
         };
 
         let track_list = List::new(track_list)
-            .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+            .highlight_style(highlight_style(Focused::TrackList, self.state.focus_state))
             .block(Block::bordered().title("Tracks"));
         StatefulWidget::render(track_list, track_area, buf, &mut self.state.track_state);
+    }
+}
+
+fn highlight_style(want_focus: Focused, has_focus: Focused) -> Style {
+    if want_focus == has_focus {
+        FOCUS_SELECTED_STYLE
+    } else {
+        UNFOCUS_SELECTED_STYLE
     }
 }
 
@@ -169,34 +248,4 @@ fn list_next(list_state: &mut ListState, max_len: usize) {
         None => 0,
     };
     list_state.select(Some(i));
-}
-
-fn opl(track_data: Vec<u8>) {
-    let mut opl = opl::new().expect("opl setup");
-    let settings = opl::OPLSettings {
-        mixer_rate: 49716,
-        imf_clock_rate: 0,
-    };
-    opl.play(track_data, settings).expect("play");
-
-    let mut line = String::new();
-    let _ = std::io::stdin()
-        .read_line(&mut line)
-        .expect("Failed to read line");
-}
-
-// Assumes a 'ripped AudioT chunk' as for now
-fn read_file(file: &Path) -> Vec<u8> {
-    let mut file = File::open(file).expect("open audio file");
-    let mut size_buf: [u8; 2] = [0; 2];
-    let bytes_read = file.read(&mut size_buf).expect("read size");
-    if bytes_read != 2 {
-        panic!("invalid file {:?}, could not read size header", file);
-    }
-
-    let size = u16::from_le_bytes(size_buf) as usize;
-
-    let mut bytes = vec![0; size];
-    file.read_exact_at(&mut bytes, 2).expect("read data");
-    bytes
 }
