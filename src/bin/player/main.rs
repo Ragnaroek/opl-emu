@@ -9,8 +9,10 @@ use ratatui::{
     },
     prelude::*,
     style::palette::tailwind::SLATE,
+    text::Span,
     widgets::{Block, List, ListState, Paragraph},
 };
+use sdl2::sys::SDL_OnApplicationDidReceiveMemoryWarning;
 use std::io::{self, stdout};
 use std::path::Path;
 
@@ -27,7 +29,7 @@ struct Cli {
     path: Option<std::path::PathBuf>,
 }
 
-struct PlayState {
+struct PlaybackState {
     game: &'static GameModule,
     track: &'static Track,
 }
@@ -36,7 +38,7 @@ struct State {
     game_state: ListState,
     track_state: ListState,
     focus_state: Focused,
-    play_state: Option<PlayState>,
+    playback_state: Option<PlaybackState>,
     opl: OPL,
 }
 
@@ -77,7 +79,7 @@ impl App {
                 track_state: ListState::default(),
                 focus_state: Focused::GameList,
                 opl,
-                play_state: None,
+                playback_state: None,
             },
         }
     }
@@ -121,7 +123,7 @@ impl App {
                         KeyCode::Enter => {
                             if self.state.focus_state == Focused::GameList {
                                 if let Some(game_selected) = self.state.game_state.selected() {
-                                    self.state.play_state = Some(PlayState {
+                                    self.state.playback_state = Some(PlaybackState {
                                         track: &CATALOGED_GAMES[game_selected].metadata.tracks[0],
                                         game: CATALOGED_GAMES[game_selected],
                                     });
@@ -130,7 +132,7 @@ impl App {
                                 if let Some(game_selected) = self.state.game_state.selected() {
                                     if let Some(track_selected) = self.state.track_state.selected()
                                     {
-                                        self.state.play_state = Some(PlayState {
+                                        self.state.playback_state = Some(PlaybackState {
                                             track: &CATALOGED_GAMES[game_selected].metadata.tracks
                                                 [track_selected],
                                             game: CATALOGED_GAMES[game_selected],
@@ -139,7 +141,7 @@ impl App {
                                 }
                             }
 
-                            if let Some(play_state) = &self.state.play_state {
+                            if let Some(play_state) = &self.state.playback_state {
                                 // TODO remove hard-coded path and replace it with a config/scan result
                                 // TODO Take OPL_Settings from GameModule config?
                                 // TODO Remove expected and update playState with error
@@ -177,13 +179,7 @@ impl Widget for &mut App {
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .areas(bottom_area);
 
-        let playback_str = if let Some(play_state) = &self.state.play_state {
-            "Playing: ".to_string() + play_state.track.name
-        } else {
-            "Nothing selected to play".to_string()
-        };
-
-        Paragraph::new(playback_str)
+        Paragraph::new(playback_text(&self.state.playback_state))
             .block(Block::bordered().title("Playback"))
             .render(playback_area, buf);
 
@@ -211,6 +207,30 @@ impl Widget for &mut App {
             .highlight_style(highlight_style(Focused::TrackList, self.state.focus_state))
             .block(Block::bordered().title("Tracks"));
         StatefulWidget::render(track_list, track_area, buf, &mut self.state.track_state);
+    }
+}
+
+fn playback_text(state: &Option<PlaybackState>) -> Text {
+    if let Some(state) = state {
+        let mut playback_text = Text::default();
+        playback_text.lines.push(Line::from(vec![Span::styled(
+            format!("{} • {}", state.track.name, state.track.artist),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]));
+        playback_text.lines.push(Line::from(vec![Span::styled(
+            format!(
+                "{} ({})",
+                state.game.metadata.name, state.game.metadata.year
+            ),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]));
+        playback_text
+    } else {
+        Text::from("Nothing selected")
     }
 }
 
