@@ -1,6 +1,6 @@
 use clap::Parser;
-use opl::backend_sdl::OPL;
 use opl::catalog::{GameModule, Track, CATALOGED_GAMES};
+use opl::OPL;
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode, KeyEventKind},

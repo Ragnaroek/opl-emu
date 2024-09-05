@@ -8,6 +8,11 @@ pub struct OPL {
     device: Option<AudioDevice<OPLCallback>>,
 }
 
+// According to the SDL documentation the audio system is thread-safe.
+// But the SDL API does not mark is as Send and without the 'Send' marker
+// it is impossible to use this in an asynchronous context (as for example iron-wolf does).
+unsafe impl Send for OPL {}
+
 pub fn new() -> Result<OPL, &'static str> {
     let sdl_context = sdl2::init().expect("sdl init failed");
     let audio_subsystem = sdl_context.audio().expect("audio init failed");
@@ -22,6 +27,7 @@ impl OPL {
         self.ensure_device(settings);
 
         let device = self.device.as_mut().expect("device");
+        device.pause();
         {
             let mut cb = device.lock();
             cb.hack_len = data.len();

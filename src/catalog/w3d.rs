@@ -151,13 +151,6 @@ static METADATA: Metadata = Metadata {
     ],
 };
 
-/*
-typedef enum {
-        PACMAN_MUS,              // 26
-        LASTMUSIC
-         } musicnames;
-*/
-
 static HEADER_FILE: &str = "AUDIOHED.WL6";
 static AUDIO_FILE: &str = "AUDIOT.WL6";
 

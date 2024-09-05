@@ -7,16 +7,21 @@ mod lib_test;
 #[cfg(feature = "catalog")]
 pub mod catalog;
 
-use core::array::from_fn;
-use std::f64::consts::PI;
+// SDL
 
 #[cfg(feature = "sdl")]
 pub mod backend_sdl;
 
 #[cfg(feature = "sdl")]
+pub use backend_sdl::OPL;
+
+#[cfg(feature = "sdl")]
 pub fn new() -> Result<backend_sdl::OPL, &'static str> {
     return backend_sdl::new();
 }
+
+use core::array::from_fn;
+use std::f64::consts::PI;
 
 pub struct OPLSettings {
     pub mixer_rate: u32,
