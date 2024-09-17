@@ -1,6 +1,6 @@
 [package]
 name = "opl-emu"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 description = "OPL Emulator"
 license = "GPL-3.0"
@@ -19,11 +19,17 @@ name = "opl-extract"
 path = "src/bin/extract/main.rs"
 required-features = ["extract-bin"]
 
+[[bin]]
+name = "soundcheck-w3d"
+path = "src/bin/soundcheck-w3d/main.rs"
+required-features = ["soundcheck-w3d-bin"]
+
 [features]
 sdl = ["dep:sdl2"]
 catalog = []
 extract-bin = ["dep:clap"]
 player-bin = ["dep:clap", "dep:ratatui"]
+soundcheck-w3d-bin = ["dep:clap", "dep:ratatui"]
 
 [dependencies]
 sdl2 = { version = "0.37.0", optional = true, default-features = false, features = [

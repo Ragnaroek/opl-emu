@@ -151,25 +151,44 @@ static METADATA: Metadata = Metadata {
     ],
 };
 
-static HEADER_FILE: &str = "AUDIOHED.WL6";
-static AUDIO_FILE: &str = "AUDIOT.WL6";
+pub static HEADER_FILE: &str = "AUDIOHED.WL6";
+pub static AUDIO_FILE: &str = "AUDIOT.WL6";
 
 const START_MUSIC: usize = 261;
 
 // Game Module interface
-
 fn is_w3d() -> bool {
     todo!("check w3d folder structure");
 }
 
-fn load_track(game_path: &Path, track_no: usize) -> Result<Vec<u8>, String> {
+pub fn load_track(game_path: &Path, track_no: usize) -> Result<Vec<u8>, String> {
     let headers = read_w3d_header(&game_path.join(HEADER_FILE))?;
-    read_music_track(&headers, &game_path.join(AUDIO_FILE), track_no)
+    load_chunk(
+        &headers,
+        &game_path.join(AUDIO_FILE),
+        START_MUSIC + track_no,
+        2,
+    )
 }
-
 // End Game Module interface
 
-fn read_w3d_header(header_file: &Path) -> Result<Vec<u32>, String> {
+// Reads a raw chunk from the W3D audiofile.
+pub fn load_chunk(
+    headers: &Vec<u32>,
+    audiot_file: &Path,
+    chunk_no: usize,
+    data_start: usize,
+) -> Result<Vec<u8>, String> {
+    let file = File::open(audiot_file).map_err(|e| e.to_string())?;
+    let offset = headers[chunk_no];
+    let size = (headers[chunk_no + 1] - offset) as usize;
+    let mut data_buf = vec![0; size - data_start];
+    file.read_exact_at(&mut data_buf, (offset + data_start as u32) as u64)
+        .map_err(|e| e.to_string())?;
+    Ok(data_buf)
+}
+
+pub fn read_w3d_header(header_file: &Path) -> Result<Vec<u32>, String> {
     let mut file = File::open(header_file).map_err(|e| e.to_string())?;
     let mut buf = Vec::new();
     let size = file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
@@ -182,19 +201,4 @@ fn read_w3d_header(header_file: &Path) -> Result<Vec<u32>, String> {
     }
 
     Ok(headers)
-}
-
-fn read_music_track(
-    headers: &Vec<u32>,
-    audiot_file: &Path,
-    track_no: usize,
-) -> Result<Vec<u8>, String> {
-    let file = File::open(audiot_file).map_err(|e| e.to_string())?;
-    let offset = headers[START_MUSIC + track_no];
-    let size = (headers[START_MUSIC + track_no + 1] - offset) as usize;
-
-    let mut data_buf = vec![0; size - 2];
-    file.read_exact_at(&mut data_buf, (offset + 2) as u64)
-        .map_err(|e| e.to_string())?;
-    Ok(data_buf)
 }

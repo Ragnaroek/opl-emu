@@ -28,3 +28,9 @@ jobs:
         run: cargo build --features sdl --verbose
       - name: Run tests SDL
         run: cargo test --features sdl,catalog --verbose
+      - name: Build player
+        run: make build-player
+      - name: Build soundcheck-w3d
+        run: make build-soundcheck-w3d
+      - name: Build extract
+        run: make build-extract

@@ -55,7 +55,12 @@ pub fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let terminal = Terminal::new(CrosstermBackend::new(stdout())).map_err(|e| e.to_string())?;
 
-    let opl = opl::new()?;
+    let mut opl = opl::new()?;
+    opl.init(opl::OPLSettings {
+        mixer_rate: 49716,
+        imf_clock_rate: 0,
+        adl_clock_rate: 0,
+    });
     App::new(opl).run(terminal).map_err(|e| e.to_string())?;
 
     disable_raw_mode().map_err(|e| e.to_string())?;
@@ -143,18 +148,14 @@ impl App {
 
                             if let Some(play_state) = &self.state.playback_state {
                                 // TODO remove hard-coded path and replace it with a config/scan result
-                                // TODO Take OPL_Settings from GameModule config?
+                                // TODO Take OPL_Settings from GameModule config? (how much variance is in this?)
                                 // TODO Remove expected and update playState with error
-                                let settings = opl::OPLSettings {
-                                    mixer_rate: 49716,
-                                    imf_clock_rate: 0,
-                                };
                                 let track_data = (play_state.game.track_loader)(
                                     Path::new("/Users/michaelbohn/_w3d/w3d_data"),
                                     play_state.track.no,
                                 )
                                 .expect("load track data");
-                                self.state.opl.play(track_data, settings).expect("opl play");
+                                self.state.opl.play_imf(track_data).expect("opl play");
                             }
                         }
                         _ => {}

@@ -23,11 +23,6 @@ pub fn new() -> Result<backend_sdl::OPL, &'static str> {
 use core::array::from_fn;
 use std::f64::consts::PI;
 
-pub struct OPLSettings {
-    pub mixer_rate: u32,
-    pub imf_clock_rate: u32,
-}
-
 const OPL_RATE: f64 = 14318180.0 / 288.0;
 
 const TREMOLO_TABLE_SIZE: usize = 52;
@@ -85,6 +80,12 @@ const MASK_KSR: u8 = 0x10;
 const MASK_SUSTAIN: u8 = 0x20;
 const MASK_VIBRATO: u8 = 0x40;
 
+const AL_CHAR: u32 = 0x20;
+const AL_SCALE: u32 = 0x40;
+const AL_ATTACK: u32 = 0x60;
+const AL_SUS: u32 = 0x80;
+const AL_WAVE: u32 = 0xe0;
+
 static VOLUME_HANDLER_TABLE: [VolumeHandler; 5] = [
     template_volume_off,
     template_volume_release,
@@ -92,6 +93,60 @@ static VOLUME_HANDLER_TABLE: [VolumeHandler; 5] = [
     template_volume_decay,
     template_volume_attack,
 ];
+
+#[derive(Debug)]
+pub struct Instrument {
+    pub m_char: u8,
+    pub c_char: u8,
+    pub m_scale: u8,
+    pub c_scale: u8,
+    pub m_attack: u8,
+    pub c_attack: u8,
+    pub m_sus: u8,
+    pub c_sus: u8,
+    pub m_wave: u8,
+    pub c_wave: u8,
+    pub n_conn: u8,
+    pub voice: u8,
+    pub mode: u8,
+}
+
+#[derive(Debug)]
+pub struct AdlSound {
+    pub length: u32,
+    pub priority: u16,
+    pub instrument: Instrument,
+    pub block: u8,
+    pub data: Vec<u8>,
+    pub terminator: u8,
+    pub name: String,
+}
+
+// State structs for backend impls.
+
+struct ImfState {
+    pub data: Vec<u8>,
+
+    pub hack_ptr: usize,
+    pub hack_len: usize,
+    pub hack_seq_len: usize,
+    pub hack_time: u32,
+    pub al_time_count: u32,
+}
+
+struct AdlState {
+    pub sound: AdlSound,
+    pub data_ptr: usize,
+    pub note: bool,
+}
+
+// Ende State structs
+
+pub struct OPLSettings {
+    pub mixer_rate: u32,
+    pub imf_clock_rate: u32,
+    pub adl_clock_rate: u32,
+}
 
 pub struct Chip {
     channels: [Channel; NUM_CHANNELS],

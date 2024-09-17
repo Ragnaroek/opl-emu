@@ -1,5 +1,5 @@
 use clap::Parser;
-use opl::catalog::w3d::{read_music_track, read_w3d_header};
+use opl::catalog::w3d::load_track;
 use std::{env, io::Write};
 
 #[derive(Parser)]
@@ -21,8 +21,7 @@ pub fn main() -> Result<(), String> {
         env::current_dir().map_err(|e| e.to_string())?
     };
 
-    let headers = read_w3d_header(&folder_path.join("AUDIOHED.WL6"))?;
-    let track_data = read_music_track(&headers, &folder_path.join("AUDIOT.WL6"), args.track_no)?;
+    let track_data = load_track(&folder_path, args.track_no)?;
 
     std::io::stdout()
         .write_all(&track_data)
