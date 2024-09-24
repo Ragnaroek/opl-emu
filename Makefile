@@ -1,5 +1,4 @@
 # lib
-
 build-sdl:
 	cargo build --features sdl
 
@@ -22,4 +21,7 @@ build-soundcheck-w3d:
 	@cargo build --bin soundcheck-w3d --features sdl,catalog,soundcheck-w3d-bin
 
 run-soundcheck-w3d:
-	@cargo run --bin soundcheck-w3d --features sdl,catalog,soundcheck-w3d-bin -- 137 --folder /Users/michaelbohn/_w3d/w3d_data #./testdata/test.wl
+	@cargo run --bin soundcheck-w3d --features sdl,catalog,soundcheck-w3d-bin -- 50 --folder /Users/michaelbohn/_w3d/w3d_data #./testdata/test.wl
+
+# all together
+build-all: build-sdl build-player build-extract build-soundcheck-w3d

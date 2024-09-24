@@ -154,7 +154,8 @@ static METADATA: Metadata = Metadata {
 pub static HEADER_FILE: &str = "AUDIOHED.WL6";
 pub static AUDIO_FILE: &str = "AUDIOT.WL6";
 
-const START_MUSIC: usize = 261;
+pub const START_SOUND: usize = 87;
+pub const START_MUSIC: usize = 261;
 
 // Game Module interface
 fn is_w3d() -> bool {

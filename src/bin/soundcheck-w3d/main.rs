@@ -1,15 +1,19 @@
 use clap::Parser;
 use opl::{
-    catalog::w3d::{load_chunk, load_track, read_w3d_header, AUDIO_FILE, HEADER_FILE},
+    catalog::w3d::{load_chunk, load_track, read_w3d_header, AUDIO_FILE, HEADER_FILE, START_SOUND},
     AdlSound, Instrument,
 };
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+use ratatui::prelude::*;
+use ratatui::widgets::Paragraph;
+use ratatui::{DefaultTerminal, Frame};
 use std::{
     env,
     io::{self, Read},
+    path::PathBuf,
     str,
 };
 
@@ -23,6 +27,27 @@ struct Cli {
     sound_no: usize,
 }
 
+#[derive(PartialEq)]
+enum Show {
+    Hint,
+    SoundSelect,
+    TrackSelect,
+}
+
+struct State {
+    show: Show,
+    opl: opl::OPL,
+    headers: Vec<u32>,
+    sound_no: usize,
+    track_no: usize,
+    folder_path: PathBuf,
+    num_input: String,
+}
+
+struct App {
+    state: State,
+}
+
 // Test program, mainly created to test the mixing of OPL music track playing
 // with ADL sound effects.
 pub fn main() -> Result<(), String> {
@@ -33,8 +58,6 @@ pub fn main() -> Result<(), String> {
     } else {
         env::current_dir().map_err(|e| e.to_string())?
     };
-
-    let mut sound_no = args.sound_no;
 
     let music_track = load_track(&folder_path, 0).expect("music track");
     let headers = read_w3d_header(&folder_path.join(HEADER_FILE))?;
@@ -51,32 +74,110 @@ pub fn main() -> Result<(), String> {
     opl.play_imf(music_track)?;
 
     enable_raw_mode().map_err(|e| e.to_string())?;
-    println!("Press 'q' to quit, 's' to play a sound or 'c'/'t' to choose a sound/track");
-    loop {
-        let evt = event::read().map_err(|e| e.to_string())?;
-        if let Event::Key(key) = evt {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => break,
-                    KeyCode::Char('s') => {
-                        let chunk =
-                            load_chunk(&headers, &folder_path.join(AUDIO_FILE), sound_no, 0)?;
-                        let sound = read_sound(chunk);
-                        opl.play_adl(sound)?
+    let terminal = ratatui::init();
+    App::new(opl, headers, args.sound_no, folder_path)
+        .run(terminal)
+        .map_err(|e| e.to_string())?;
+    ratatui::restore();
+
+    Ok(())
+}
+
+impl App {
+    fn new(opl: opl::OPL, headers: Vec<u32>, initial_sound_no: usize, folder_path: PathBuf) -> App {
+        App {
+            state: State {
+                show: Show::Hint,
+                opl,
+                headers,
+                sound_no: initial_sound_no,
+                track_no: 0,
+                folder_path,
+                num_input: "".to_string(),
+            },
+        }
+    }
+
+    fn run(&mut self, mut terminal: DefaultTerminal) -> Result<(), String> {
+        loop {
+            self.draw(&mut terminal)?;
+
+            let evt = event::read().map_err(|e| e.to_string())?;
+            if let Event::Key(key) = evt {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('p') => {
+                            //TODO add SOUND_START to chunk_no!
+                            let chunk = load_chunk(
+                                &self.state.headers,
+                                &self.state.folder_path.join(AUDIO_FILE),
+                                START_SOUND + self.state.sound_no,
+                                0,
+                            )?;
+                            let sound = read_sound(chunk);
+                            self.state.opl.play_adl(sound)?
+                        }
+                        KeyCode::Char('s') => {
+                            self.state.show = Show::SoundSelect;
+                        }
+                        KeyCode::Char('t') => {
+                            self.state.show = Show::TrackSelect;
+                        }
+                        KeyCode::Char(ch) => {
+                            if self.input_mode() && ch.is_digit(10) {
+                                self.state.num_input.push(ch);
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let no_res = self.state.num_input.parse();
+                            if no_res.is_ok() {
+                                let no = no_res.expect("number");
+                                if self.state.show == Show::SoundSelect {
+                                    self.state.sound_no = no;
+                                } else if self.state.show == Show::TrackSelect {
+                                    self.state.track_no = no;
+                                }
+                                self.state.num_input = "".to_string();
+                                self.state.show = Show::Hint;
+                            }
+                        }
+                        _ => { /* ignore */ }
                     }
-                    KeyCode::Char('c') => {
-                        todo!("sound choosing");
-                    }
-                    KeyCode::Char('t') => {
-                        todo!("track choosing");
-                    }
-                    _ => { /* ignore */ }
                 }
             }
         }
+        Ok(())
     }
-    disable_raw_mode().map_err(|e| e.to_string())?;
-    Ok(())
+
+    fn input_mode(&self) -> bool {
+        self.state.show == Show::TrackSelect || self.state.show == Show::SoundSelect
+    }
+
+    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<(), String> {
+        terminal
+            .draw(|frame| frame.render_widget(self, frame.area()))
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
+impl Widget for &mut App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let p = match self.state.show {
+            Show::Hint => Paragraph::new(format!(
+                "Press 'q' to quit, 'p' to play sound number {} or 's'/'t' to choose a sound/track",
+                self.state.sound_no
+            )),
+            Show::SoundSelect => {
+                Paragraph::new(format!("Enter sound number: {}", &self.state.num_input))
+            }
+            Show::TrackSelect => {
+                Paragraph::new(format!("Enter track number: {}", &self.state.num_input))
+            }
+        };
+        p.render(area, buf);
+    }
 }
 
 fn read_sound(data: Vec<u8>) -> AdlSound {
