@@ -5,17 +5,12 @@ use opl::{
 };
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode},
+    terminal::enable_raw_mode,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
-use ratatui::{DefaultTerminal, Frame};
-use std::{
-    env,
-    io::{self, Read},
-    path::PathBuf,
-    str,
-};
+use ratatui::DefaultTerminal;
+use std::{env, path::PathBuf, str};
 
 #[derive(Parser)]
 struct Cli {
@@ -59,7 +54,8 @@ pub fn main() -> Result<(), String> {
         env::current_dir().map_err(|e| e.to_string())?
     };
 
-    let music_track = load_track(&folder_path, 0).expect("music track");
+    let track_no = 7;
+    let music_track = load_track(&folder_path, track_no).expect("music track");
     let headers = read_w3d_header(&folder_path.join(HEADER_FILE))?;
 
     let mut opl = opl::new()?;
@@ -75,7 +71,7 @@ pub fn main() -> Result<(), String> {
 
     enable_raw_mode().map_err(|e| e.to_string())?;
     let terminal = ratatui::init();
-    App::new(opl, headers, args.sound_no, folder_path)
+    App::new(opl, headers, args.sound_no, track_no, folder_path)
         .run(terminal)
         .map_err(|e| e.to_string())?;
     ratatui::restore();
@@ -84,14 +80,20 @@ pub fn main() -> Result<(), String> {
 }
 
 impl App {
-    fn new(opl: opl::OPL, headers: Vec<u32>, initial_sound_no: usize, folder_path: PathBuf) -> App {
+    fn new(
+        opl: opl::OPL,
+        headers: Vec<u32>,
+        initial_sound_no: usize,
+        initial_track_no: usize,
+        folder_path: PathBuf,
+    ) -> App {
         App {
             state: State {
                 show: Show::Hint,
                 opl,
                 headers,
                 sound_no: initial_sound_no,
-                track_no: 0,
+                track_no: initial_track_no,
                 folder_path,
                 num_input: "".to_string(),
             },
@@ -137,6 +139,10 @@ impl App {
                                     self.state.sound_no = no;
                                 } else if self.state.show == Show::TrackSelect {
                                     self.state.track_no = no;
+                                    let music_track =
+                                        load_track(&self.state.folder_path, self.state.track_no)
+                                            .expect("music track");
+                                    self.state.opl.play_imf(music_track).expect("imf playing");
                                 }
                                 self.state.num_input = "".to_string();
                                 self.state.show = Show::Hint;

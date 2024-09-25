@@ -32,7 +32,6 @@ const NUM_CHANNELS: usize = 18;
 // TODO impl WAVE_PRECISION WAVE_BITS mode
 const WAVE_BITS: u32 = 10;
 const WAVE_SH: u32 = 32 - WAVE_BITS;
-const WAVE_MASK: u32 = (1 << WAVE_SH) - 1;
 
 const LFO_SH: u32 = WAVE_SH - 10;
 const LFO_MAX: u32 = 256 << LFO_SH;
@@ -1044,7 +1043,7 @@ fn operator_write_80(op: &mut Operator, tables: &Tables, _: &ChipValues, val: u8
     }
 }
 
-fn operator_write_e0(op: &mut Operator, tables: &Tables, chip: &ChipValues, val: u8) {
+fn operator_write_e0(op: &mut Operator, _: &Tables, chip: &ChipValues, val: u8) {
     if (op.reg_e0 ^ val) == 0 {
         return;
     }
