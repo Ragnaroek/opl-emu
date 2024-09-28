@@ -2,7 +2,7 @@
 build-sdl:
 	cargo build --features sdl
 
-test:
+test-sdl:
 	cargo test --features sdl,catalog
 
 # player

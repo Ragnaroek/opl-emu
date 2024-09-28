@@ -135,6 +135,15 @@ impl AudioCallback for OPLCallback {
         let mut samples_len = out.len() as u32 >> 1;
         let mut out_offset = 0;
 
+        for _ in 0..self.adl_samples_per_tick {
+            if self.adl_state.is_some() {
+                if adl_mixer(&mut self.chip, self.adl_state.as_mut().expect("adl state")) {
+                    self.adl_state = None;
+                    self.chip.write_reg(0xB0, 0); // write silence at the end so that last note does not repeat
+                }
+            }
+        }
+
         if let Some(imf_state) = self.imf_state.borrow_mut() {
             loop {
                 if self.num_ready_samples > 0 {
@@ -194,16 +203,6 @@ impl AudioCallback for OPLCallback {
                 }
 
                 self.num_ready_samples = self.samples_per_music_tick;
-            }
-        }
-
-        // TODO compute frequency from imf_freq and adl_freq relation
-        for _ in 0..self.adl_samples_per_tick {
-            if self.adl_state.is_some() {
-                if adl_mixer(&mut self.chip, self.adl_state.as_mut().expect("adl state")) {
-                    self.adl_state = None;
-                    self.chip.write_reg(0xB0, 0); // write silence at the end so that last note does not repeat
-                }
             }
         }
     }

@@ -93,7 +93,7 @@ static VOLUME_HANDLER_TABLE: [VolumeHandler; 5] = [
     template_volume_attack,
 ];
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Instrument {
     pub m_char: u8,
     pub c_char: u8,
@@ -110,7 +110,7 @@ pub struct Instrument {
     pub mode: u8,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AdlSound {
     pub length: u32,
     pub priority: u16,

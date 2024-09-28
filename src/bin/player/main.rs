@@ -12,7 +12,6 @@ use ratatui::{
     text::Span,
     widgets::{Block, List, ListState, Paragraph},
 };
-use sdl2::sys::SDL_OnApplicationDidReceiveMemoryWarning;
 use std::io::{self, stdout};
 use std::path::Path;
 
