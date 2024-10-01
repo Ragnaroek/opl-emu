@@ -4,7 +4,7 @@ use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 use sdl2::{self, AudioSubsystem};
 
 use crate::{
-    AdlSound, AdlState, Chip, ImfState, OPLSettings, AL_ATTACK, AL_CHAR, AL_SCALE, AL_SUS, AL_WAVE,
+    adl_set_fx_inst, AdlSound, AdlState, Chip, ImfState, OPLSettings, AL_FREQ_H, AL_FREQ_L,
 };
 
 pub struct OPL {
@@ -92,10 +92,13 @@ impl OPL {
         let device = self.device.as_mut().expect("device");
         {
             let mut cb = device.lock();
+            adl_set_fx_inst(&mut cb.chip, &sound.instrument);
+            let al_block = ((sound.block & 7) << 2) | 0x20;
             cb.adl_state = Some(AdlState {
                 sound,
                 data_ptr: 0,
-                note: false,
+                al_block,
+                sound_time_counter: cb.adl_samples_per_tick,
             })
         }
 
@@ -135,15 +138,6 @@ impl AudioCallback for OPLCallback {
         let mut samples_len = out.len() as u32 >> 1;
         let mut out_offset = 0;
 
-        for _ in 0..self.adl_samples_per_tick {
-            if self.adl_state.is_some() {
-                if adl_mixer(&mut self.chip, self.adl_state.as_mut().expect("adl state")) {
-                    self.adl_state = None;
-                    self.chip.write_reg(0xB0, 0); // write silence at the end so that last note does not repeat
-                }
-            }
-        }
-
         if let Some(imf_state) = self.imf_state.borrow_mut() {
             loop {
                 if self.num_ready_samples > 0 {
@@ -168,6 +162,27 @@ impl AudioCallback for OPLCallback {
                         self.num_ready_samples -= samples_len;
                         //return; //wait for next callback
                         break;
+                    }
+                }
+
+                if self.adl_state.is_some() {
+                    let state = self.adl_state.as_mut().expect("adl state");
+                    state.sound_time_counter -= 1;
+                    if state.sound_time_counter == 0 {
+                        state.sound_time_counter = self.adl_samples_per_tick;
+                        if state.data_ptr < state.sound.data.len() {
+                            let al_sound = state.sound.data[state.data_ptr];
+                            if al_sound != 0 {
+                                self.chip.write_reg(AL_FREQ_L, al_sound);
+                                self.chip.write_reg(AL_FREQ_H, state.al_block);
+                            } else {
+                                self.chip.write_reg(AL_FREQ_H, 0);
+                            }
+                            state.data_ptr += 1;
+                        } else {
+                            self.adl_state = None;
+                            self.chip.write_reg(AL_FREQ_H, 0); // write silence at the end so that last note does not repeat
+                        }
                     }
                 }
 
@@ -206,40 +221,6 @@ impl AudioCallback for OPLCallback {
             }
         }
     }
-}
-
-// Returns 'true' if the sound was played to the end.
-fn adl_mixer(chip: &mut Chip, state: &mut AdlState) -> bool {
-    if state.data_ptr == 0 {
-        let c = 3;
-        chip.write_reg(AL_CHAR, state.sound.instrument.m_char);
-        chip.write_reg(AL_SCALE, state.sound.instrument.m_scale);
-        chip.write_reg(AL_ATTACK, state.sound.instrument.m_attack);
-        chip.write_reg(AL_SUS, state.sound.instrument.m_sus);
-        chip.write_reg(AL_WAVE, state.sound.instrument.m_wave);
-        chip.write_reg(c + AL_CHAR, state.sound.instrument.c_char);
-        chip.write_reg(c + AL_SCALE, state.sound.instrument.c_scale);
-        chip.write_reg(c + AL_ATTACK, state.sound.instrument.c_attack);
-        chip.write_reg(c + AL_SUS, state.sound.instrument.c_sus);
-        chip.write_reg(c + AL_WAVE, state.sound.instrument.c_wave);
-    }
-
-    let note = state.sound.data[state.data_ptr];
-    state.data_ptr += 1;
-
-    if note == 0 {
-        chip.write_reg(0xB0, 0);
-        state.note = false;
-    } else {
-        if !state.note {
-            let block = ((state.sound.block & 7) << 2) | 0x20;
-            chip.write_reg(0xB0, block);
-        }
-        state.note = true;
-        chip.write_reg(0xA0, note);
-    }
-
-    return state.data_ptr >= state.sound.data.len();
 }
 
 fn opl_update(

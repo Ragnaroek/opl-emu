@@ -84,6 +84,9 @@ const AL_SCALE: u32 = 0x40;
 const AL_ATTACK: u32 = 0x60;
 const AL_SUS: u32 = 0x80;
 const AL_WAVE: u32 = 0xe0;
+const AL_FEED_CON: u32 = 0xc0;
+const AL_FREQ_L: u32 = 0xa0;
+const AL_FREQ_H: u32 = 0xb0;
 
 static VOLUME_HANDLER_TABLE: [VolumeHandler; 5] = [
     template_volume_off,
@@ -136,7 +139,8 @@ struct ImfState {
 struct AdlState {
     pub sound: AdlSound,
     pub data_ptr: usize,
-    pub note: bool,
+    pub sound_time_counter: u32,
+    pub al_block: u8,
 }
 
 // Ende State structs
@@ -1431,4 +1435,22 @@ fn template_volume(op: &mut Operator, state: OperatorState) -> i32 {
 
 fn env_silent(x: i32) -> bool {
     x >= ENV_LIMIT
+}
+
+// backend impl helper functions
+
+pub fn adl_set_fx_inst(chip: &mut Chip, inst: &Instrument) {
+    let c = 3;
+    chip.write_reg(AL_CHAR, inst.m_char);
+    chip.write_reg(AL_SCALE, inst.m_scale);
+    chip.write_reg(AL_ATTACK, inst.m_attack);
+    chip.write_reg(AL_SUS, inst.m_sus);
+    chip.write_reg(AL_WAVE, inst.m_wave);
+    chip.write_reg(c + AL_CHAR, inst.c_char);
+    chip.write_reg(c + AL_SCALE, inst.c_scale);
+    chip.write_reg(c + AL_ATTACK, inst.c_attack);
+    chip.write_reg(c + AL_SUS, inst.c_sus);
+    chip.write_reg(c + AL_WAVE, inst.c_wave);
+
+    chip.write_reg(AL_FEED_CON, 0);
 }
