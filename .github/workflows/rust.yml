@@ -12,25 +12,19 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        toolchain:
+          - stable
     steps:
-      - uses: actions/checkout@v2
-      - name: Install Stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
       - name: Update
         run: sudo apt-get update
       - name: Install SDL
         run: sudo apt-get install libsdl2-dev
-      - name: Build SDL
-        run: cargo build --features sdl --verbose
-      - name: Run tests SDL
-        run: cargo test --features sdl,catalog --verbose
-      - name: Build player
-        run: make build-player
-      - name: Build soundcheck-w3d
-        run: make build-soundcheck-w3d
-      - name: Build extract
-        run: make build-extract
+      - name: Build All
+        run: make build-all
+      - name: Test All
+        run: make test-all

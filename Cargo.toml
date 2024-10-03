@@ -26,6 +26,7 @@ required-features = ["soundcheck-w3d-bin"]
 
 [features]
 sdl = ["dep:sdl2"]
+web = []
 catalog = []
 extract-bin = ["dep:clap"]
 player-bin = ["dep:clap", "dep:ratatui"]

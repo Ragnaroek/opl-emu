@@ -4,7 +4,7 @@ use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 use sdl2::{self, AudioSubsystem};
 
 use crate::{
-    adl_set_fx_inst, AdlSound, AdlState, Chip, ImfState, OPLSettings, AL_FREQ_H, AL_FREQ_L,
+    adl_set_fx_inst, , AdlState, Chip, ImfState, OPLSettings, AL_FREQ_H, AL_FREQ_L,
 };
 
 pub struct OPL {

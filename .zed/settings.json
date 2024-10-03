@@ -11,5 +11,6 @@
         }
       }
     }
-  }
+  },
+  "preferred_line_length": 150
 }

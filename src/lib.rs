@@ -1,4 +1,7 @@
-#![cfg_attr(not(any(feature = "sdl", feature = "catalog")), no_std)]
+#![cfg_attr(
+    not(any(feature = "sdl", feature = "catalog", feature = "web")),
+    no_std
+)]
 
 #[cfg(test)]
 #[path = "./lib_test.rs"]
@@ -18,6 +21,18 @@ pub use backend_sdl::OPL;
 #[cfg(feature = "sdl")]
 pub fn new() -> Result<backend_sdl::OPL, &'static str> {
     return backend_sdl::new();
+}
+
+// Web
+#[cfg(feature = "web")]
+pub mod backend_web;
+
+#[cfg(feature = "web")]
+pub use backend_web::OPL;
+
+#[cfg(feature = "web")]
+pub fn new() -> Result<backend_web::OPL, &'static str> {
+    return backend_web::new();
 }
 
 use core::array::from_fn;
