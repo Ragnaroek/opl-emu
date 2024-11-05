@@ -65,9 +65,9 @@ impl OPL {
     }
 
     pub fn play_imf(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
-        self.assert_device();
+        self.assert_device()?;
 
-        let device = self.device.as_mut().expect("device");
+        let device = self.mut_device()?;
         {
             let mut cb = device.lock();
             let hack_len = data.len();
@@ -78,18 +78,37 @@ impl OPL {
                 hack_time: 0,
                 al_time_count: 0,
                 hack_ptr: 0,
+                sq_active: true,
             });
             cb.chip.setup();
         }
-
         device.resume();
         Ok(())
     }
 
-    pub fn play_adl(&mut self, sound: AdlSound) -> Result<(), &'static str> {
-        self.assert_device();
+    pub fn stop_imf(&mut self) -> Result<(), &'static str> {
+        self.assert_device()?;
+        let device = self.mut_device()?;
+        {
+            let mut cb = device.lock();
+            if let Some(imf_state) = &mut cb.imf_state {
+                imf_state.sq_active = false;
+            }
+        }
+        Ok(())
+    }
 
-        let device = self.device.as_mut().expect("device");
+    pub fn pause_imf(&mut self) -> Result<(), &'static str> {
+        self.assert_device()?;
+
+        self.mut_device()?.pause();
+        Ok(())
+    }
+
+    pub fn play_adl(&mut self, sound: AdlSound) -> Result<(), &'static str> {
+        self.assert_device()?;
+
+        let device = self.mut_device()?;
         {
             let mut cb = device.lock();
             adl_set_fx_inst(&mut cb.chip, &sound.instrument);
@@ -106,16 +125,28 @@ impl OPL {
         Ok(())
     }
 
-    pub fn write_reg(&mut self, reg: u32, val: u8) {
-        self.assert_device();
-        let device = self.device.as_mut().expect("device");
+    pub fn write_reg(&mut self, reg: u32, val: u8) -> Result<(), &'static str> {
+        self.assert_device()?;
+
+        let device = self.mut_device()?;
         let mut cb = device.lock();
         cb.chip.write_reg(reg, val);
+        Ok(())
     }
 
-    fn assert_device(&self) {
+    fn assert_device(&self) -> Result<(), &'static str> {
         if self.device.is_none() {
-            panic!("OPL not initialized, did you call init()?");
+            return Err("OPL not initialized, did you call init()?");
+        }
+        Ok(())
+    }
+
+    fn mut_device(&mut self) -> Result<&mut AudioDevice<OPLCallback>, &'static str> {
+        let may_device = self.device.as_mut();
+        if let Some(device) = may_device {
+            Ok(device)
+        } else {
+            Err("no device")
         }
     }
 }
@@ -186,37 +217,38 @@ impl AudioCallback for OPLCallback {
                     }
                 }
 
-                loop {
-                    if imf_state.hack_time > imf_state.al_time_count {
-                        break;
+                if imf_state.sq_active {
+                    loop {
+                        if imf_state.hack_time > imf_state.al_time_count {
+                            break;
+                        }
+
+                        let t = u16::from_le_bytes(
+                            imf_state.data[(imf_state.hack_ptr + 2)..(imf_state.hack_ptr + 4)]
+                                .try_into()
+                                .unwrap(),
+                        ) as u32;
+                        imf_state.hack_time = imf_state.al_time_count + t;
+
+                        let reg = imf_state.data[imf_state.hack_ptr] as u32;
+                        let val = imf_state.data[imf_state.hack_ptr + 1];
+
+                        self.chip.write_reg(reg, val);
+                        imf_state.hack_ptr += 4;
+                        imf_state.hack_len -= 4;
+
+                        if imf_state.hack_len <= 0 {
+                            break;
+                        }
                     }
-
-                    let t = u16::from_le_bytes(
-                        imf_state.data[(imf_state.hack_ptr + 2)..(imf_state.hack_ptr + 4)]
-                            .try_into()
-                            .unwrap(),
-                    ) as u32;
-                    imf_state.hack_time = imf_state.al_time_count + t;
-
-                    let reg = imf_state.data[imf_state.hack_ptr] as u32;
-                    let val = imf_state.data[imf_state.hack_ptr + 1];
-
-                    self.chip.write_reg(reg, val);
-                    imf_state.hack_ptr += 4;
-                    imf_state.hack_len -= 4;
-
-                    if imf_state.hack_len <= 0 {
-                        break;
+                    imf_state.al_time_count += 1;
+                    if imf_state.hack_len == 0 {
+                        imf_state.hack_ptr = 0;
+                        imf_state.hack_len = imf_state.hack_seq_len;
+                        imf_state.hack_time = 0;
+                        imf_state.al_time_count = 0;
                     }
                 }
-                imf_state.al_time_count += 1;
-                if imf_state.hack_len == 0 {
-                    imf_state.hack_ptr = 0;
-                    imf_state.hack_len = imf_state.hack_seq_len;
-                    imf_state.hack_time = 0;
-                    imf_state.al_time_count = 0;
-                }
-
                 self.num_ready_samples = self.samples_per_music_tick;
             }
         }

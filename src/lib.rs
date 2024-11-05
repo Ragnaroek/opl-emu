@@ -149,6 +149,7 @@ struct ImfState {
     pub hack_seq_len: usize,
     pub hack_time: u32,
     pub al_time_count: u32,
+    pub sq_active: bool,
 }
 
 struct AdlState {
