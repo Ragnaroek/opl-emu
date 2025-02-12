@@ -237,7 +237,7 @@ impl AudioCallback for OPLCallback {
                         imf_state.hack_ptr += 4;
                         imf_state.hack_len -= 4;
 
-                        if imf_state.hack_len <= 0 {
+                        if imf_state.hack_len == 0 {
                             break;
                         }
                     }

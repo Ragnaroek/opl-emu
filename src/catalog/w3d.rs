@@ -183,10 +183,15 @@ pub fn load_chunk(
     let file = File::open(audiot_file).map_err(|e| e.to_string())?;
     let offset = headers[chunk_no];
     let size = (headers[chunk_no + 1] - offset) as usize;
-    let mut data_buf = vec![0; size - data_start];
-    file.read_exact_at(&mut data_buf, (offset + data_start as u32) as u64)
+
+    let mut data_buf = vec![0; size];
+    file.read_exact_at(&mut data_buf, offset as u64)
         .map_err(|e| e.to_string())?;
-    Ok(data_buf)
+
+    let track_size = u16::from_le_bytes(data_buf[0..2].try_into().unwrap()) as usize;
+    let mut result = vec![0; track_size];
+    result.copy_from_slice(&data_buf[data_start..(track_size + data_start)]);
+    Ok(result)
 }
 
 pub fn read_w3d_header(header_file: &Path) -> Result<Vec<u32>, String> {
