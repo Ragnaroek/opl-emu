@@ -35,3 +35,6 @@ run-soundcheck-w3d:
 build-all: build-sdl build-web build-player build-extract build-soundcheck-w3d
 
 test-all: test-sdl test-web
+
+publish:
+	cargo publish --features sdl
