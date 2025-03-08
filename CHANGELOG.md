@@ -4,5 +4,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 # [Unreleased]
 
+# [0.2.6]
+- add `stop_adl` function
+
 # [0.2.5]
 - add `is_adl_playing` function

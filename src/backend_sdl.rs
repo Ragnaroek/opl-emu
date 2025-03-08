@@ -4,7 +4,7 @@ use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 use sdl2::{self, AudioSubsystem};
 
 use crate::{
-    adl_set_fx_inst, AdlSound, AdlState, Chip, ImfState, OPLSettings, AL_FREQ_H, AL_FREQ_L,
+    AL_FREQ_H, AL_FREQ_L, AdlSound, AdlState, Chip, ImfState, OPLSettings, adl_set_fx_inst,
 };
 
 pub struct OPL {
@@ -122,6 +122,15 @@ impl OPL {
         }
 
         device.resume();
+        Ok(())
+    }
+
+    pub fn stop_adl(&mut self) -> Result<(), &'static str> {
+        self.assert_device()?;
+        let device = self.mut_device()?;
+        device.pause();
+        let mut cb = device.lock();
+        cb.adl_state = None;
         Ok(())
     }
 

@@ -1,11 +1,11 @@
 use clap::Parser;
-use opl::catalog::{GameModule, Track, CATALOGED_GAMES};
 use opl::OPL;
+use opl::catalog::{CATALOGED_GAMES, GameModule, Track};
 use ratatui::{
     crossterm::{
-        event::{self, Event, KeyCode, KeyEventKind},
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
+        event::{self, Event, KeyCode, KeyEventKind},
+        terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     },
     prelude::*,
     style::palette::tailwind::SLATE,

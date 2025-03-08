@@ -1,15 +1,15 @@
 use clap::Parser;
 use opl::{
-    catalog::w3d::{load_chunk, load_track, read_w3d_header, AUDIO_FILE, HEADER_FILE, START_SOUND},
     AdlSound, Instrument,
+    catalog::w3d::{AUDIO_FILE, HEADER_FILE, START_SOUND, load_chunk, load_track, read_w3d_header},
 };
+use ratatui::DefaultTerminal;
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::enable_raw_mode,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
-use ratatui::DefaultTerminal;
 use std::{env, path::PathBuf, str};
 
 #[derive(Parser)]
