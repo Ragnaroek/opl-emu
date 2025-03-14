@@ -137,7 +137,7 @@ impl OPL {
     pub fn is_adl_playing(&mut self) -> Result<bool, &'static str> {
         self.assert_device()?;
         let device = self.mut_device()?;
-        let mut cb = device.lock();
+        let cb = device.lock();
         Ok(cb.adl_state.is_some())
     }
 

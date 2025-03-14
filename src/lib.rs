@@ -1368,10 +1368,10 @@ fn channel_block_template(
 }
 
 fn channel_generate_percussion(
-    chip: &mut Chip,
-    channel_ix: usize,
-    output: &mut [i32],
-    opl3_mode: bool,
+    _chip: &mut Chip,
+    _channel_ix: usize,
+    _output: &mut [i32],
+    _opl3_mode: bool,
 ) {
     todo!("channel_generate_percussion");
 }
