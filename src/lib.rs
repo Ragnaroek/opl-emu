@@ -1098,7 +1098,9 @@ fn operator_update_frequency(op: &mut Operator) {
     let block = (op.chan_data >> 10) & 0xff;
 
     // TODO Impl WAVE_PRECSION mode here
-    op.wave_add = (freq << block) * op.freq_mul;
+
+    let (w, _) = (freq << block).overflowing_mul(op.freq_mul);
+    op.wave_add = w;
     if (op.reg_20 & MASK_VIBRATO) != 0 {
         op.vib_strength = (freq >> 7) as u8;
         // TODO Impl WAVE_PRECSION mode also here
