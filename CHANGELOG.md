@@ -4,6 +4,9 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 # [Unreleased]
 
+# [0.2.8]
+- dependency update (especially SDL 0.38.0)
+
 # [0.2.6]
 - add `stop_adl` function
 
