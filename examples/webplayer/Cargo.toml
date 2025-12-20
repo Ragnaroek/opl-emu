@@ -1,0 +1,22 @@
+[package]
+name = "web-player"
+version = "0.1.0"
+edition = "2024"
+authors = ["Michael Bohn <spaceodyssey@gmx.de>"]
+description = "OPL Web Player"
+license = "GPL-3.0"
+repository = "https://github.com/Ragnaroek/opl-emu/examples/webplayer"
+
+[lib]
+name = "webplayer"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+opl-emu = { path = "../../", features = ["web"] }
+
+# feature web
+wasm-bindgen = { version = "0.2.101" }
+wasm-bindgen-futures = { version = "0.4.53" }
+console_error_panic_hook = { version = "0.1.7" }
+web-sys = { version = "0.3.78", features = ["console",  "Window"] }
+js-sys = { version = "0.3.77" }

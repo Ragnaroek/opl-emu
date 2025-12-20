@@ -1,0 +1,2 @@
+run FILE:
+    cargo run -- {{FILE}}

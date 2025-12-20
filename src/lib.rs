@@ -30,11 +30,6 @@ pub mod backend_web;
 #[cfg(feature = "web")]
 pub use backend_web::OPL;
 
-#[cfg(feature = "web")]
-pub fn new() -> Result<backend_web::OPL, &'static str> {
-    return backend_web::new();
-}
-
 use core::array::from_fn;
 use std::f64::consts::PI;
 

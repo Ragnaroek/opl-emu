@@ -18,7 +18,7 @@ build-player:
 	@cargo build --release --bin opl-player --features sdl,catalog,player-bin
 
 run-player:
-	@cargo run --bin opl-player --features sdl,catalog,player-bin -- /Users/michaelbohn/_w3d/w3d_data #./testdata/test.wlf
+	@cargo run --bin opl-player --features sdl,catalog,player-bin -- ./testdata/test.wlf #/Users/michaelbohn/_w3d/w3d_data
 
 # extract
 build-extract:

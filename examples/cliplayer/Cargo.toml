@@ -1,0 +1,16 @@
+[package]
+name = "cli-player"
+version = "0.1.0"
+edition = "2024"
+authors = ["Michael Bohn <spaceodyssey@gmx.de>"]
+description = "OPL CLI Player"
+license = "GPL-3.0"
+repository = "https://github.com/Ragnaroek/opl-emu/examples/cliplayer"
+
+[[bin]]
+name = "cliplayer"
+path = "src/main.rs"
+
+[dependencies]
+opl-emu = { path = "../../", features = ["sdl"] }
+ctrlc = "3.5.1"

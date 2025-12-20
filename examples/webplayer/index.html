@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en-US">
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+        <title>opl-emu web-player</title>
+    </head>
+
+    <body>
+        <script type="module">
+            import initSync, { start_player } from "./pkg/webplayer.js";
+
+            initSync();
+
+            async function handleUpload() {
+                const file = document.getElementById("upload").files[0];
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const track_data = new Uint8Array(event.target.result);
+                    start_player(track_data);
+                    document.getElementById("status").innerText = "🎶 Playing file " + file.name + "🎶";
+                };
+                reader.readAsArrayBuffer(file);
+            }
+            document.getElementById("upload").addEventListener("change", handleUpload);
+        </script>
+
+        <label for="upload">Choose a file to play:<br /> </label>
+        <input id="upload" type="file" />
+
+        <div style="padding-top: 10px" id="status"></div>
+    </body>
+</html>

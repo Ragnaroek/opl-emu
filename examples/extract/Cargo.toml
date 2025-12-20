@@ -1,0 +1,17 @@
+[package]
+name = "opl-extract"
+version = "0.1.0"
+edition = "2024"
+authors = ["Michael Bohn <spaceodyssey@gmx.de>"]
+description = "OPL File Extractor"
+license = "GPL-3.0"
+repository = "https://github.com/Ragnaroek/opl-emu/examples/extract"
+
+[[bin]]
+name = "extract"
+path = "src/main.rs"
+
+[dependencies]
+opl-emu = { path = "../../", features = ["catalog"] }
+
+clap = { version = "4.5.41", features = ["derive"] }
