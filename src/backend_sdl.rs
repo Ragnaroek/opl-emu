@@ -1,5 +1,4 @@
 use core::borrow::BorrowMut;
-use std::time::SystemTime;
 
 use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 use sdl2::{self, AudioSubsystem};
@@ -192,12 +191,6 @@ impl AudioCallback for OPLCallback {
     fn callback(&mut self, out: &mut [i16]) {
         let mut samples_len = out.len() as u32 >> 1;
         let mut out_offset = 0;
-        println!(
-            "## SDL callback, samples_len = {}, num_ready_samples={}, out len={}",
-            samples_len,
-            self.num_ready_samples,
-            out.len(),
-        );
 
         if let Some(imf_state) = self.imf_state.borrow_mut() {
             loop {
@@ -221,8 +214,6 @@ impl AudioCallback for OPLCallback {
                             &mut self.mix_buffer,
                         );
                         self.num_ready_samples -= samples_len;
-                        //return; //wait for next callback
-                        println!("!! done, wait for next callback");
                         break;
                     }
                 }
@@ -232,12 +223,6 @@ impl AudioCallback for OPLCallback {
                     state.sound_time_counter -= 1;
                     if state.sound_time_counter == 0 {
                         state.sound_time_counter = self.adl_samples_per_tick;
-                        println!(
-                            "### t={:?}, data_ptr = {}, counter={}",
-                            SystemTime::now(),
-                            state.sound.data.len() - state.data_ptr,
-                            state.sound_time_counter
-                        );
                         if state.data_ptr < state.sound.data.len() {
                             let al_sound = state.sound.data[state.data_ptr];
                             if al_sound != 0 {
@@ -289,9 +274,6 @@ impl AudioCallback for OPLCallback {
                 self.num_ready_samples = self.samples_per_music_tick;
             }
         }
-
-        println!("out={:?}", out);
-        panic!("force quite");
     }
 }
 

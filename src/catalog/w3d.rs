@@ -154,7 +154,7 @@ static METADATA: Metadata = Metadata {
 pub static HEADER_FILE: &str = "AUDIOHED.WL6";
 pub static AUDIO_FILE: &str = "AUDIOT.WL6";
 
-pub const START_SOUND: usize = 87;
+pub const START_ADLIB_SOUND: usize = 87;
 pub const START_MUSIC: usize = 261;
 
 // Game Module interface
@@ -164,11 +164,25 @@ fn is_w3d() -> bool {
 
 pub fn load_track(game_path: &Path, track_no: usize) -> Result<Vec<u8>, String> {
     let headers = read_w3d_header(&game_path.join(HEADER_FILE))?;
-    load_chunk(
+    let track_chunk = load_chunk(
         &headers,
         &game_path.join(AUDIO_FILE),
         START_MUSIC + track_no,
-        2,
+    )?;
+
+    let track_size = u16::from_le_bytes(track_chunk[0..2].try_into().unwrap()) as usize;
+    println!("sound_size = {}", track_size);
+    let mut result = vec![0; track_size];
+    result.copy_from_slice(&track_chunk[2..(track_size + 2)]);
+    Ok(result)
+}
+
+pub fn load_sound(game_path: &Path, sound_no: usize) -> Result<Vec<u8>, String> {
+    let headers = read_w3d_header(&game_path.join(HEADER_FILE))?;
+    load_chunk(
+        &headers,
+        &game_path.join(AUDIO_FILE),
+        START_ADLIB_SOUND + sound_no,
     )
 }
 // End Game Module interface
@@ -178,20 +192,18 @@ pub fn load_chunk(
     headers: &Vec<u32>,
     audiot_file: &Path,
     chunk_no: usize,
-    data_start: usize,
 ) -> Result<Vec<u8>, String> {
+    println!("chunk_no = {}", chunk_no);
     let file = File::open(audiot_file).map_err(|e| e.to_string())?;
     let offset = headers[chunk_no];
+    println!("offset = {}", offset);
     let size = (headers[chunk_no + 1] - offset) as usize;
+    println!("size = {}", size);
 
     let mut data_buf = vec![0; size];
     file.read_exact_at(&mut data_buf, offset as u64)
         .map_err(|e| e.to_string())?;
-
-    let track_size = u16::from_le_bytes(data_buf[0..2].try_into().unwrap()) as usize;
-    let mut result = vec![0; track_size];
-    result.copy_from_slice(&data_buf[data_start..(track_size + data_start)]);
-    Ok(result)
+    Ok(data_buf)
 }
 
 pub fn read_w3d_header(header_file: &Path) -> Result<Vec<u32>, String> {

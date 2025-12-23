@@ -1,2 +1,5 @@
-run FILE:
-    cargo run -- {{FILE}}
+run-track FILE:
+    cargo run -- {{ FILE }}
+
+run-with-sound FILE SFILE:
+    cargo run -- {{ FILE }} {{ SFILE }}

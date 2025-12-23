@@ -7,10 +7,10 @@
     "rust-analyzer": {
       "initialization_options": {
         "cargo": {
-          "features": ["web", "sdl", "catalog"]
-        }
-      }
-    }
+          "features": ["sdl", "catalog"],
+        },
+      },
+    },
   },
-  "preferred_line_length": 150
+  "preferred_line_length": 150,
 }
