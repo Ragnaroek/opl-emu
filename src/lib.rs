@@ -11,17 +11,11 @@ mod lib_test;
 pub mod catalog;
 
 // SDL
-
 #[cfg(feature = "sdl")]
 pub mod backend_sdl;
 
 #[cfg(feature = "sdl")]
 pub use backend_sdl::OPL;
-
-#[cfg(feature = "sdl")]
-pub fn new() -> Result<backend_sdl::OPL, &'static str> {
-    return backend_sdl::new();
-}
 
 // Web
 #[cfg(feature = "web")]

@@ -234,11 +234,24 @@ impl OPL {
         Ok(())
     }
 
+    pub fn stop_imf(&mut self) -> Result<(), &'static str> {
+        let mut state_ref = RefCell::borrow_mut(&mut self.state);
+        let state = state_ref.as_mut().expect("playback init");
+        if let Some(imf_state) = state.imf_state.as_mut() {
+            imf_state.sq_active = false;
+        }
+        Ok(())
+    }
+
     pub fn play_adl(&mut self, sound: AdlSound) -> Result<(), &'static str> {
         todo!("implement play_adl for web")
     }
 
-    pub fn write_reg(&mut self, reg: u32, val: u8) {
-        todo!("implement write_reg for web");
+    pub fn write_reg(&mut self, reg: u32, val: u8) -> Result<(), &'static str> {
+        let mut state_ref = RefCell::borrow_mut(&mut self.state);
+        let state = state_ref.as_mut().expect("playback init");
+
+        state.chip.write_reg(reg, val);
+        Ok(())
     }
 }

@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use opl::{OPL, OPLSettings};
+
 fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -20,8 +22,8 @@ fn main() -> Result<(), String> {
         adl = Some(opl::read_adl(sound_file_data));
     }
 
-    let mut opl = opl::new()?;
-    opl.init(opl::OPLSettings {
+    let mut opl = OPL::new()?;
+    opl.init(OPLSettings {
         mixer_rate: 44100,
         imf_clock_rate: 560,
         adl_clock_rate: 140,
