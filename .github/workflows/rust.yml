@@ -18,13 +18,17 @@ jobs:
           - stable
     steps:
       - uses: actions/checkout@v4
+
       - name: Install Rust
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
       - name: Update
-        run: sudo apt-get update
-      - name: Install SDL
-        run: sudo apt-get install libsdl2-dev
-      - name: Build All
-        run: make build-all
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y just libsdl2-dev
+
       - name: Test All
-        run: make test-all
+        run: just test-all
