@@ -5,7 +5,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, AudioWorkletNode, AudioWorkletNodeOptions, window};
 
-use crate::{AL_FREQ_H, AL_FREQ_L, AdlSound, AdlState, Chip, ImfState, OPLSettings};
+use crate::{
+    AL_FREQ_H, AL_FREQ_L, AdlSound, AdlState, Chip, ImfState, OPLSettings, adl_set_fx_inst,
+};
 
 pub struct OPL {
     audio_ctx: AudioContext,
@@ -23,7 +25,7 @@ struct PlaybackState {
     adl_state: Option<AdlState>,
 }
 
-const BLOCK_SIZE: u32 = 10 * 128 * 2; // should be a multiple of 256
+const BLOCK_SIZE: u32 = 14 * 128; // should be a multiple of 256
 const FLOAT_CONVERSION_FACTOR: f32 = 32768.0;
 
 impl PlaybackState {
@@ -217,6 +219,8 @@ impl OPL {
     }
 
     pub fn play_imf(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
+        self.clear_buffer()?;
+
         let mut state_ref = RefCell::borrow_mut(&mut self.state);
         let state = state_ref.as_mut().expect("playback init");
 
@@ -235,6 +239,7 @@ impl OPL {
     }
 
     pub fn stop_imf(&mut self) -> Result<(), &'static str> {
+        self.clear_buffer()?;
         let mut state_ref = RefCell::borrow_mut(&mut self.state);
         let state = state_ref.as_mut().expect("playback init");
         if let Some(imf_state) = state.imf_state.as_mut() {
@@ -244,7 +249,19 @@ impl OPL {
     }
 
     pub fn play_adl(&mut self, sound: AdlSound) -> Result<(), &'static str> {
-        todo!("implement play_adl for web")
+        let mut state_ref = RefCell::borrow_mut(&mut self.state);
+        let state = state_ref.as_mut().expect("playback init");
+
+        adl_set_fx_inst(&mut state.chip, &sound.instrument);
+        let al_block = ((sound.block & 7) << 2) | 0x20;
+        state.adl_state = Some(AdlState {
+            sound,
+            data_ptr: 0,
+            al_block,
+            sound_time_counter: state.adl_samples_per_tick,
+        });
+
+        Ok(())
     }
 
     pub fn write_reg(&mut self, reg: u32, val: u8) -> Result<(), &'static str> {
@@ -253,5 +270,13 @@ impl OPL {
 
         state.chip.write_reg(reg, val);
         Ok(())
+    }
+
+    fn clear_buffer(&self) -> Result<(), &'static str> {
+        self.node
+            .port()
+            .unwrap()
+            .post_message(&JsValue::from("CLEAR"))
+            .map_err(|_| "failed to send clear command")
     }
 }
