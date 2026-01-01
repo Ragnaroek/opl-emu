@@ -3,7 +3,12 @@ use wasm_bindgen::prelude::*;
 use opl::{OPL, OPLSettings};
 
 #[wasm_bindgen]
-pub async fn start_player(track_data: Vec<u8>) -> Result<(), String> {
+pub struct WebControl {
+    opl: OPL,
+}
+
+#[wasm_bindgen]
+pub async fn init_player() -> Result<WebControl, String> {
     console_error_panic_hook::set_once();
 
     let mut opl = OPL::new().await?;
@@ -14,8 +19,18 @@ pub async fn start_player(track_data: Vec<u8>) -> Result<(), String> {
     })
     .await?;
 
-    opl.play_imf(track_data)?;
-    Ok(())
+    Ok(WebControl { opl })
+}
+
+#[wasm_bindgen]
+impl WebControl {
+    pub async fn play_imf(&mut self, track_data: Vec<u8>) {
+        self.opl.play_imf(track_data).expect("play imf")
+    }
+
+    pub async fn play_adl(&mut self, sound_data: Vec<u8>) {
+        self.opl.play_adl(sound_data).expect("play adl");
+    }
 }
 
 pub async fn sleep(millis: u32) {

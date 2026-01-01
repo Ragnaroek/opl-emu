@@ -7,26 +7,52 @@
 
     <body>
         <script type="module">
-            import initSync, { start_player } from "./pkg/webplayer.js";
+            import init, { init_player } from "./pkg/webplayer.js";
 
-            initSync();
+            await init();
+            var player; // needs to be initialised through a user interaction, will be done in the imf file upload
 
-            async function handleUpload() {
-                const file = document.getElementById("upload").files[0];
+            async function handleImfUpload() {
+                const file = document.getElementById("uploadImf").files[0];
                 const reader = new FileReader();
                 reader.onload = async (event) => {
+                    if (!player) {
+                        // init_player has to be called in onload (or some other user request to play audio)
+                        player = await init_player();
+                    }
                     const track_data = new Uint8Array(event.target.result);
-                    start_player(track_data);
-                    document.getElementById("status").innerText = "🎶 Playing file " + file.name + "🎶";
+                    player.play_imf(track_data);
+                    document.getElementById("imfStatus").innerText = "🎶 Playing track " + file.name + "🎶";
                 };
                 reader.readAsArrayBuffer(file);
             }
-            document.getElementById("upload").addEventListener("change", handleUpload);
+            document.getElementById("uploadImf").addEventListener("change", handleImfUpload);
+
+            async function handleAdlUpload() {
+                const file = document.getElementById("uploadAdl").files[0];
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    if (!player) {
+                        alert("You must first upload a track (imf file)");
+                        return;
+                    }
+
+                    const sound_data = new Uint8Array(event.target.result);
+                    player.play_adl(sound_data);
+                    document.getElementById("adlStatus").innerText = "🎶 Playing sound file " + file.name + "🎶";
+                };
+                reader.readAsArrayBuffer(file);
+            }
+            document.getElementById("uploadAdl").addEventListener("change", handleAdlUpload);
         </script>
 
-        <label for="upload">Choose a file to play:<br /> </label>
-        <input id="upload" type="file" />
-
-        <div style="padding-top: 10px" id="status"></div>
+        <label for="uploadImf">Choose a track file to play (.imf file):<br /> </label>
+        <input id="uploadImf" type="file" />
+        <div style="padding-top: 10px" id="imfStatus"></div>
+        <br />
+        <br />
+        <label for="uploadAdl">Choose a sound file to play (.adl file):<br /> </label>
+        <input id="uploadAdl" type="file" />
+        <div style="padding-top: 10px" id="adlStatus"></div>
     </body>
 </html>

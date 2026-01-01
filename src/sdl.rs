@@ -3,13 +3,35 @@ use core::borrow::BorrowMut;
 use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 use sdl2::{self, AudioSubsystem};
 
-use crate::{
-    AL_FREQ_H, AL_FREQ_L, AdlSound, AdlState, Chip, ImfState, OPLSettings, adl_set_fx_inst,
-};
+use crate::chip::{AL_FREQ_H, AL_FREQ_L, AdlSound, Chip, adl_set_fx_inst};
 
 pub struct OPL {
     audio_subsystem: AudioSubsystem,
     device: Option<AudioDevice<OPLCallback>>,
+}
+
+pub struct OPLSettings {
+    pub mixer_rate: u32,
+    pub imf_clock_rate: u32,
+    pub adl_clock_rate: u32,
+}
+
+struct SdlImfState {
+    pub data: Vec<u8>,
+
+    pub hack_ptr: usize,
+    pub hack_len: usize,
+    pub hack_seq_len: usize,
+    pub hack_time: u32,
+    pub al_time_count: u32,
+    pub sq_active: bool,
+}
+
+struct SdlAdlState {
+    pub sound: AdlSound,
+    pub data_ptr: usize,
+    pub sound_time_counter: u32,
+    pub al_block: u8,
 }
 
 // According to the SDL documentation the audio system is thread-safe.
@@ -71,7 +93,7 @@ impl OPL {
         {
             let mut cb = device.lock();
             let hack_len = data.len();
-            cb.imf_state = Some(ImfState {
+            cb.imf_state = Some(SdlImfState {
                 data,
                 hack_len,
                 hack_seq_len: hack_len,
@@ -113,7 +135,7 @@ impl OPL {
             let mut cb = device.lock();
             adl_set_fx_inst(&mut cb.chip, &sound.instrument);
             let al_block = ((sound.block & 7) << 2) | 0x20;
-            cb.adl_state = Some(AdlState {
+            cb.adl_state = Some(SdlAdlState {
                 sound,
                 data_ptr: 0,
                 al_block,
@@ -181,8 +203,8 @@ struct OPLCallback {
     adl_samples_per_tick: u32,
 
     chip: Chip,
-    imf_state: Option<ImfState>,
-    adl_state: Option<AdlState>,
+    imf_state: Option<SdlImfState>,
+    adl_state: Option<SdlAdlState>,
 }
 
 impl AudioCallback for OPLCallback {

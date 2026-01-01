@@ -1,4 +1,4 @@
-use crate::{Chip, OpOffset};
+use crate::chip::{Chip, OpOffset};
 
 const TEST_RATE: u32 = 49716;
 

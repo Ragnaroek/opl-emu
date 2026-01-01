@@ -16,10 +16,10 @@ fn main() -> Result<(), String> {
     let track_file_name = &args[1];
     let track_file_data = fs::read(track_file_name).expect("Failed to read track file");
 
-    let mut adl: Option<opl::AdlSound> = None;
+    let mut adl: Option<opl::chip::AdlSound> = None;
     if args.len() >= 3 {
         let sound_file_data = fs::read(&args[2]).expect("Failed to read sound file");
-        adl = Some(opl::read_adl(sound_file_data));
+        adl = Some(opl::chip::read_adl(&sound_file_data));
     }
 
     let mut opl = OPL::new()?;

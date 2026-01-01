@@ -26,29 +26,42 @@ path = "src/bin/soundcheck-w3d/main.rs"
 required-features = ["soundcheck-w3d-bin"]
 
 [features]
-sdl = ["dep:sdl2"]
+sdl = [
+    "chip",
+    "dep:sdl2"
+]
 web = [
+    "chip",
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
     "dep:web-sys",
     "dep:js-sys",
 ]
+web-worklet = [
+    "chip",
+    "dep:mini-alloc",
+]
 catalog = []
-extract-bin = ["dep:clap"]
+chip = [
+    "dep:libm"
+]
 player-bin = ["dep:clap", "dep:ratatui"]
-soundcheck-w3d-bin = ["dep:clap", "dep:ratatui"]
+
 
 [dependencies]
 sdl2 = { version = "0.38.0", optional = true, default-features = false, features = [
 ] }
-clap = { version = "4.5.41", optional = true, features = ["derive"] }
-ratatui = { version = "0.29.0", optional = true }
+clap = { version = "4.5.53", optional = true, features = ["derive"] }
+ratatui = { version = "0.30.0", optional = true }
+
+# feature chip
+libm = { version = "0.2.15", optional = true }
 
 # feature web
 wasm-bindgen = { version = "0.2.106", optional = true }
 wasm-bindgen-futures = { version = "0.4.56", optional = true }
-js-sys = { version = "0.3.82", optional = true }
-web-sys = { version = "0.3.82", optional = true, features = [
+js-sys = { version = "0.3.83", optional = true }
+web-sys = { version = "0.3.83", optional = true, features = [
     "AudioContext",
     "AudioContextState",
     "AudioDestinationNode",
@@ -60,3 +73,9 @@ web-sys = { version = "0.3.82", optional = true, features = [
     "Window",
     "console",
 ] }
+
+# feature web-worklet
+mini-alloc = {version = "1.0.0", optional = true }
+
+[profile.release]
+panic = "abort"
