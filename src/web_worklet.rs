@@ -82,7 +82,7 @@ pub extern "C" fn new_generator(
     let samples_per_music_tick = mixer_rate / imf_clock_rate;
     let adl_samples_per_tick = imf_clock_rate / adl_clock_rate;
 
-    let mix_buffer = vec![0; mixer_rate as usize / 60]; // ~60 fps buffer
+    let mix_buffer = vec![0; samples_per_music_tick as usize];
 
     Box::into_raw(Box::new(OplGenerator {
         mix_buffer,
