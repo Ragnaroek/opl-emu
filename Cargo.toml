@@ -70,8 +70,6 @@ web-sys = { version = "0.3.83", optional = true, features = [
     "AudioWorkletNodeOptions",
     "AudioWorkletProcessor",
     "MessagePort",
-    "Window",
-    "console",
 ] }
 
 # feature web-worklet

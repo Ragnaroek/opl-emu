@@ -2,4 +2,4 @@ build:
     wasm-pack build --target web
 
 run: build
-	miniserve ./
+    miniserve ./

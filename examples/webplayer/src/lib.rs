@@ -13,7 +13,6 @@ pub async fn init_player() -> Result<WebControl, String> {
 
     let mut opl = OPL::new().await?;
     opl.init(OPLSettings {
-        mixer_rate: 44100,
         imf_clock_rate: 560,
         adl_clock_rate: 140,
     })

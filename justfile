@@ -17,7 +17,8 @@ test-web:
 # # web-worklet
 build-web-worklet:
     cargo build --release --target wasm32-unknown-unknown --features web-worklet
-    #wasm-pack build --out-dir pkg-worklet --target web --features web-worklet
+    rm -f web/worklet.wasm
+    cp target/wasm32-unknown-unknown/release/opl.wasm web/worklet.wasm
 
 # player
 build-player:
