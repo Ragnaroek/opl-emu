@@ -12,7 +12,7 @@ use ratatui::{
     text::Span,
     widgets::{Block, List, ListState, Paragraph},
 };
-use std::io::{self, stdout};
+use std::io::stdout;
 use std::path::Path;
 
 const FOCUS_SELECTED_STYLE: Style = Style::new()
@@ -46,21 +46,19 @@ struct App {
 }
 
 pub fn main() -> Result<(), String> {
-    let args = Cli::parse();
-
     enable_raw_mode().map_err(|e| e.to_string())?;
     stdout()
         .execute(EnterAlternateScreen)
         .map_err(|e| e.to_string())?;
     let terminal = Terminal::new(CrosstermBackend::new(stdout())).map_err(|e| e.to_string())?;
 
-    let mut opl = opl::new()?;
+    let mut opl = OPL::new()?;
     opl.init(opl::OPLSettings {
         mixer_rate: 49716,
         imf_clock_rate: 0,
         adl_clock_rate: 0,
     });
-    App::new(opl).run(terminal).map_err(|e| e.to_string())?;
+    App::new(opl).run(terminal)?;
 
     disable_raw_mode().map_err(|e| e.to_string())?;
     stdout()
@@ -88,11 +86,11 @@ impl App {
         }
     }
 
-    fn run(&mut self, mut terminal: Terminal<impl Backend>) -> io::Result<()> {
+    fn run(&mut self, mut terminal: Terminal<impl Backend>) -> Result<(), String> {
         loop {
             self.draw(&mut terminal)?;
 
-            if let Event::Key(key) = event::read()? {
+            if let Event::Key(key) = event::read().map_err(|e| e.to_string())? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
@@ -164,8 +162,10 @@ impl App {
         }
     }
 
-    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
-        terminal.draw(|frame| frame.render_widget(self, frame.area()))?;
+    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<(), String> {
+        terminal
+            .draw(|frame| frame.render_widget(self, frame.area()))
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }
@@ -210,7 +210,7 @@ impl Widget for &mut App {
     }
 }
 
-fn playback_text(state: &Option<PlaybackState>) -> Text {
+fn playback_text(state: &Option<PlaybackState>) -> Text<'_> {
     if let Some(state) = state {
         let mut playback_text = Text::default();
         playback_text.lines.push(Line::from(vec![Span::styled(

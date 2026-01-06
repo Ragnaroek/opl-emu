@@ -15,16 +15,6 @@ name = "opl-player"
 path = "src/bin/player/main.rs"
 required-features = ["player-bin"]
 
-[[bin]]
-name = "opl-extract"
-path = "src/bin/extract/main.rs"
-required-features = ["extract-bin"]
-
-[[bin]]
-name = "soundcheck-w3d"
-path = "src/bin/soundcheck-w3d/main.rs"
-required-features = ["soundcheck-w3d-bin"]
-
 [features]
 sdl = [
     "chip",
