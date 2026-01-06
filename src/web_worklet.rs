@@ -62,12 +62,23 @@ pub extern "C" fn dealloc(ptr: *mut u8, size: usize) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn new_generator(mixer_rate: u32) -> *mut OplGenerator {
+pub extern "C" fn new_generator(
+    mixer_rate: u32,
+    imf_clock_rate_param: u32,
+    adl_clock_rate_param: u32,
+) -> *mut OplGenerator {
     let chip = Chip::new(mixer_rate);
 
-    // TODO make imf and adl rate configurable
-    let imf_clock_rate = 700;
-    let adl_clock_rate = 140;
+    let imf_clock_rate = if imf_clock_rate_param == 0 {
+        700
+    } else {
+        imf_clock_rate_param
+    };
+    let adl_clock_rate = if adl_clock_rate_param == 0 {
+        140
+    } else {
+        adl_clock_rate_param
+    };
     let samples_per_music_tick = mixer_rate / imf_clock_rate;
     let adl_samples_per_tick = imf_clock_rate / adl_clock_rate;
 

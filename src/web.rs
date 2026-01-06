@@ -50,13 +50,24 @@ impl OPL {
             &js_sys::Uint8Array::from(wasm_bytes.as_slice()),
         )
         .map_err(|_| "err setting wasm bytes")?;
-
         js_sys::Reflect::set(
             &processor_options,
             &JsValue::from_str("mixerRate"),
             &(self.audio_ctx.sample_rate() as u32).into(),
         )
         .map_err(|_| "err setting mixerRate")?;
+        js_sys::Reflect::set(
+            &processor_options,
+            &JsValue::from_str("imfClockRate"),
+            &settings.imf_clock_rate.into(),
+        )
+        .map_err(|_| "err setting imfClockRate")?;
+        js_sys::Reflect::set(
+            &processor_options,
+            &JsValue::from_str("adlClockRate"),
+            &settings.adl_clock_rate.into(),
+        )
+        .map_err(|_| "err setting adlClockRate")?;
 
         options.set_processor_options(Some(&processor_options.into()));
 

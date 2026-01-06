@@ -6,12 +6,12 @@ class OPLProcessor extends AudioWorkletProcessor {
     this.adl_data_ptr = 0;
     this.adl_data_len = 0;
 
-    const { wasmBytes, mixerRate } = options.processorOptions;
+    const { wasmBytes, mixerRate, imfClockRate, adlClockRate } = options.processorOptions;
     const module = new WebAssembly.Module(wasmBytes);
     const instance = new WebAssembly.Instance(module, {});
     this.wasm = instance.exports;
 
-    this.generatorPtr = this.wasm.new_generator(mixerRate);
+    this.generatorPtr = this.wasm.new_generator(mixerRate, imfClockRate, adlClockRate);
 
     this.port.onmessage = (event) => {
       if (event.data.cmd === "play_imf") {
