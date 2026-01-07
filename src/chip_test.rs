@@ -1,4 +1,4 @@
-use crate::chip::{Chip, OpOffset};
+use crate::chip::{AdlSound, Chip, OpOffset};
 
 const TEST_RATE: u32 = 49716;
 
@@ -4920,4 +4920,20 @@ fn test_ksl_table() {
     assert_eq!(ksl_table[125], 216);
     assert_eq!(ksl_table[126], 220);
     assert_eq!(ksl_table[127], 224);
+}
+
+#[test]
+fn test_adl_sound_to_vec() {
+    let test_adl_bytes = include_bytes!("../testdata/test.adl");
+
+    let sound = AdlSound::from_bytes(test_adl_bytes);
+    let back_to_vec = sound.to_vec();
+
+    // padding bytes contain garbage in the reference file. null them out so that it compares.
+    let mut ref_bytes = test_adl_bytes.to_vec();
+    ref_bytes[19] = 0;
+    ref_bytes[20] = 0;
+    ref_bytes[21] = 0;
+
+    assert_eq!(back_to_vec, ref_bytes, "not same bytes in conversion back")
 }

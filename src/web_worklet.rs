@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use crate::chip::{AL_FREQ_H, AL_FREQ_L, AdlSound, Chip, adl_set_fx_inst, read_adl};
+use crate::chip::{AL_FREQ_H, AL_FREQ_L, AdlSound, Chip, adl_set_fx_inst};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -200,10 +200,19 @@ pub extern "C" fn play_imf(g: *mut OplGenerator, ptr: *const u8, len: usize) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn stop_imf(g: *mut OplGenerator) {
+    unsafe {
+        if let Some(imf_state) = &mut (*g).imf_state {
+            imf_state.sq_active = false;
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn play_adl(g: *mut OplGenerator, ptr: *const u8, len: usize) {
     unsafe {
         let data = slice::from_raw_parts(ptr, len);
-        let sound = read_adl(data);
+        let sound = AdlSound::from_bytes(data);
         adl_set_fx_inst(&mut (*g).chip, &sound.instrument);
         let al_block = ((sound.block & 7) << 2) | 0x20;
         (*g).adl_state = Some(WorkletAdlState {
@@ -213,6 +222,11 @@ pub extern "C" fn play_adl(g: *mut OplGenerator, ptr: *const u8, len: usize) {
             sound_time_counter: (*g).adl_samples_per_tick,
         });
     };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn write_reg(g: *mut OplGenerator, reg: u32, val: u8) {
+    unsafe { (*g).chip.write_reg(reg, val) }
 }
 
 fn opl_update(g: *mut OplGenerator, offset: u32, len: usize) {

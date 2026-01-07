@@ -24,6 +24,7 @@ pub async fn init_player() -> Result<WebControl, String> {
 #[wasm_bindgen]
 impl WebControl {
     pub async fn play_imf(&mut self, track_data: Vec<u8>) {
+        self.opl.stop_imf().expect("stop_imf");
         self.opl.play_imf(track_data).expect("play imf")
     }
 

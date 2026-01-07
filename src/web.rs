@@ -1,3 +1,5 @@
+use crate::chip::AdlSound;
+
 use js_sys::{Object, Reflect, Uint8Array};
 use std::rc::Rc;
 use wasm_bindgen::JsValue;
@@ -86,19 +88,34 @@ impl OPL {
     }
 
     pub fn play_imf(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
-        self.send_cmd("play_imf", data)
+        self.send_data_cmd("play_imf", data)
     }
 
-    pub fn play_adl(&mut self, data: Vec<u8>) -> Result<(), &'static str> {
-        self.send_cmd("play_adl", data)
+    pub fn play_adl(&mut self, sound: AdlSound) -> Result<(), &'static str> {
+        let data = sound.to_vec();
+        self.send_data_cmd("play_adl", data)
     }
 
-    fn send_cmd(&mut self, cmd_name: &'static str, data: Vec<u8>) -> Result<(), &'static str> {
-        let cmd = Object::new();
-        Reflect::set(&cmd, &"cmd".into(), &cmd_name.into()).map_err(|_| "err setting cmd")?;
+    pub fn write_reg(&mut self, reg: u32, val: u8) -> Result<(), &'static str> {
+        let cmd = cmd_object("write_reg")?;
+        Reflect::set(&cmd, &"reg".into(), &reg.into()).map_err(|_| "err setting reg")?;
+        Reflect::set(&cmd, &"value".into(), &val.into()).map_err(|_| "err setting value")?;
+        self.send_cmd(cmd)
+    }
+
+    pub fn stop_imf(&mut self) -> Result<(), &'static str> {
+        let cmd = cmd_object("stop_imf")?;
+        self.send_cmd(cmd)
+    }
+
+    fn send_data_cmd(&mut self, cmd_name: &'static str, data: Vec<u8>) -> Result<(), &'static str> {
+        let cmd = cmd_object(cmd_name)?;
         let js_data = Uint8Array::from(&data[..]);
         Reflect::set(&cmd, &"data".into(), &js_data).map_err(|_| "err setting data")?;
+        self.send_cmd(cmd)
+    }
 
+    fn send_cmd(&mut self, cmd: Object) -> Result<(), &'static str> {
         if let Some(node) = &self.node {
             node.port()
                 .unwrap()
@@ -108,4 +125,10 @@ impl OPL {
             Err("OPL not initialised")
         }
     }
+}
+
+fn cmd_object(cmd_name: &'static str) -> Result<Object, &'static str> {
+    let cmd = Object::new();
+    Reflect::set(&cmd, &"cmd".into(), &cmd_name.into()).map_err(|_| "err setting cmd")?;
+    Ok(cmd)
 }

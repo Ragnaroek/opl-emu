@@ -5,6 +5,7 @@ mod chip_test;
 extern crate alloc;
 
 use alloc::string::{String, ToString};
+use alloc::vec;
 use alloc::vec::Vec;
 use core::array::from_fn;
 use core::f64::consts::PI;
@@ -101,6 +102,7 @@ pub struct Instrument {
 
 #[derive(Clone, Debug)]
 pub struct AdlSound {
+    orginal_length: usize, //size of the original byte array to be able to reconstruct it
     pub length: u32,
     pub priority: u16,
     pub instrument: Instrument,
@@ -1416,33 +1418,74 @@ pub fn adl_set_fx_inst(chip: &mut Chip, inst: &Instrument) {
     chip.write_reg(AL_FEED_CON, 0);
 }
 
-pub fn read_adl(data: &[u8]) -> AdlSound {
-    let length = u32::from_le_bytes(data[0..4].try_into().unwrap());
-    let instrument = Instrument {
-        m_char: data[6],
-        c_char: data[7],
-        m_scale: data[8],
-        c_scale: data[9],
-        m_attack: data[10],
-        c_attack: data[11],
-        m_sus: data[12],
-        c_sus: data[13],
-        m_wave: data[14],
-        c_wave: data[15],
-        n_conn: data[16],
-        voice: data[17],
-        mode: data[18],
-        // data[19..22] are padding and omitted
-    };
-    AdlSound {
-        length,
-        priority: u16::from_le_bytes(data[4..6].try_into().unwrap()),
-        instrument,
-        block: data[22],
-        data: data[23..(23 + length as usize)].to_vec(),
-        terminator: data[23 + length as usize],
-        name: str::from_utf8(&data[(23 + length as usize) + 1..data.len() - 1])
-            .expect("sound name")
-            .to_string(),
+impl AdlSound {
+    pub fn from_bytes(data: &[u8]) -> AdlSound {
+        let length = u32::from_le_bytes(data[0..4].try_into().unwrap());
+        let instrument = Instrument {
+            m_char: data[6],
+            c_char: data[7],
+            m_scale: data[8],
+            c_scale: data[9],
+            m_attack: data[10],
+            c_attack: data[11],
+            m_sus: data[12],
+            c_sus: data[13],
+            m_wave: data[14],
+            c_wave: data[15],
+            n_conn: data[16],
+            voice: data[17],
+            mode: data[18],
+            // data[19..22] are padding and omitted
+        };
+        AdlSound {
+            orginal_length: data.len(),
+            length,
+            priority: u16::from_le_bytes(data[4..6].try_into().unwrap()),
+            instrument,
+            block: data[22],
+            data: data[23..(23 + length as usize)].to_vec(),
+            terminator: data[23 + length as usize],
+            name: str::from_utf8(&data[(23 + length as usize) + 1..data.len() - 1])
+                .expect("sound name")
+                .to_string(),
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let len = self.length as usize;
+
+        let mut data = vec![0; self.orginal_length];
+        let len_bytes = self.length.to_le_bytes();
+        data[0] = len_bytes[0];
+        data[1] = len_bytes[1];
+        data[2] = len_bytes[2];
+        data[3] = len_bytes[3];
+        let prio = self.priority.to_le_bytes();
+        data[4] = prio[0];
+        data[5] = prio[1];
+
+        data[6] = self.instrument.m_char;
+        data[7] = self.instrument.c_char;
+        data[8] = self.instrument.m_scale;
+        data[9] = self.instrument.c_scale;
+        data[10] = self.instrument.m_attack;
+        data[11] = self.instrument.c_attack;
+        data[12] = self.instrument.m_sus;
+        data[13] = self.instrument.c_sus;
+        data[14] = self.instrument.m_wave;
+        data[15] = self.instrument.c_wave;
+        data[16] = self.instrument.n_conn;
+        data[17] = self.instrument.voice;
+        data[18] = self.instrument.mode;
+
+        data[22] = self.block;
+        data[23..(23 + len)].copy_from_slice(&self.data);
+        data[23 + len] = self.terminator;
+
+        let name_bytes = self.name.as_bytes();
+        let str_offset = 23 + len + 1;
+        data[str_offset..(str_offset + name_bytes.len())].copy_from_slice(name_bytes);
+
+        data
     }
 }
