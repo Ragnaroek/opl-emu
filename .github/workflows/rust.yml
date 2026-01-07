@@ -22,6 +22,9 @@ jobs:
       - name: Install Rust
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
 
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
 
