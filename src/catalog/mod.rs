@@ -1,5 +1,6 @@
 use std::path::Path;
 
+mod util;
 pub mod w3d;
 
 pub struct Track {

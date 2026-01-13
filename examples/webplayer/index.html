@@ -44,6 +44,22 @@
                 reader.readAsArrayBuffer(file);
             }
             document.getElementById("uploadAdl").addEventListener("change", handleAdlUpload);
+
+            async function handleDigiUpload() {
+                const file = document.getElementById("uploadDigi").files[0];
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    if (!player) {
+                        player = await init_player();
+                    }
+
+                    const digi_data = new Uint8Array(event.target.result);
+                    player.play_digi(digi_data);
+                    document.getElementById("digiStatus").innerText = "🎶 Playing digi sound file " + file.name + "🎶";
+                };
+                reader.readAsArrayBuffer(file);
+            }
+            document.getElementById("uploadDigi").addEventListener("change", handleDigiUpload);
         </script>
 
         <label for="uploadImf">Choose a track file to play (.imf file):<br /> </label>
@@ -54,5 +70,10 @@
         <label for="uploadAdl">Choose a sound file to play (.adl file):<br /> </label>
         <input id="uploadAdl" type="file" />
         <div style="padding-top: 10px" id="adlStatus"></div>
+        <br />
+        <br />
+        <label for="uploadDigi">Choose a sound file to play (.digi file):<br /> </label>
+        <input id="uploadDigi" type="file" />
+        <div style="padding-top: 10px" id="digiStatus"></div>
     </body>
 </html>

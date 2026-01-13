@@ -18,5 +18,5 @@ opl-emu = { path = "../../", features = ["web"] }
 wasm-bindgen = { version = "0.2.101" }
 wasm-bindgen-futures = { version = "0.4.53" }
 console_error_panic_hook = { version = "0.1.7" }
-web-sys = { version = "0.3.78", features = ["console",  "Window"] }
+web-sys = { version = "0.3.78", features = ["console",  "Window", "AudioContext", "AudioDestinationNode", "AudioContextOptions", "AudioBuffer", "AudioBufferSourceNode"] }
 js-sys = { version = "0.3.77" }
