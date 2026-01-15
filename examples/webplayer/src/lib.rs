@@ -3,7 +3,9 @@ use web_sys::{AudioContext, AudioContextOptions};
 
 use opl::{OPL, OPLSettings, chip::AdlSound};
 
-const DIGI_SAMPLE_RATE: f32 = 7042.0;
+const SOURCE_SAMPLE_RATE: f32 = 7042.0;
+const TARGET_SAMPLE_RATE: f32 = 44100.0;
+const PLAYBACK_RATE: f32 = SOURCE_SAMPLE_RATE / TARGET_SAMPLE_RATE;
 
 #[wasm_bindgen]
 pub struct WebControl {
@@ -48,9 +50,8 @@ impl WebControl {
         let frames = converted.len() as u32;
         let buffer = self
             .digi_context
-            .create_buffer(1, frames, DIGI_SAMPLE_RATE)
-            .expect("buffer");
-
+            .create_buffer(1, frames, TARGET_SAMPLE_RATE)
+            .expect("buffer creation");
         buffer
             .copy_to_channel_with_start_in_channel(&converted, 0, 0)
             .expect("copied data to channel");
@@ -60,6 +61,7 @@ impl WebControl {
             .create_buffer_source()
             .expect("buffer source creation");
         src.set_buffer(Some(&buffer));
+        src.playback_rate().set_value(PLAYBACK_RATE);
         src.set_loop(true);
 
         src.connect_with_audio_node(&self.digi_context.destination())
@@ -71,7 +73,7 @@ impl WebControl {
 
 fn init_digi_sound_context() -> Result<AudioContext, String> {
     let opts = AudioContextOptions::new();
-    opts.set_sample_rate(44100.0);
+    opts.set_sample_rate(TARGET_SAMPLE_RATE);
 
     let ctx =
         AudioContext::new_with_context_options(&opts).map_err(|_| "digi audio context init")?;
