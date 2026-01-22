@@ -40,6 +40,8 @@
                     const sound_data = new Uint8Array(event.target.result);
                     player.play_adl(sound_data);
                     document.getElementById("adlStatus").innerText = "🎶 Playing sound file " + file.name + "🎶";
+                    await player.wait_for_adl_end();
+                    document.getElementById("adlStatus").innerText = "";
                 };
                 reader.readAsArrayBuffer(file);
             }

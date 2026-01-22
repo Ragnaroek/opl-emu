@@ -1,6 +1,6 @@
 [package]
 name = "opl-emu"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 description = "OPL Emulator"
 license = "GPL-3.0"
@@ -60,6 +60,7 @@ web-sys = { version = "0.3.83", optional = true, features = [
     "AudioWorkletNodeOptions",
     "AudioWorkletProcessor",
     "MessagePort",
+    "MessageEvent",
 ] }
 
 # feature web-worklet

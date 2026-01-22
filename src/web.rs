@@ -1,14 +1,18 @@
 use crate::chip::AdlSound;
 
 use js_sys::{Object, Reflect, Uint8Array};
+use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::JsValue;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, AudioWorkletNode, AudioWorkletNodeOptions};
 
 pub struct OPL {
     audio_ctx: AudioContext,
     node: Option<Rc<AudioWorkletNode>>,
+
+    on_adl_end: Rc<RefCell<Option<Box<dyn FnMut()>>>>,
 }
 
 pub struct OPLSettings {
@@ -32,6 +36,7 @@ impl OPL {
         Ok(OPL {
             audio_ctx,
             node: None,
+            on_adl_end: Rc::new(RefCell::new(None)),
         })
     }
 
@@ -75,6 +80,25 @@ impl OPL {
 
         let node = AudioWorkletNode::new_with_options(&self.audio_ctx, "opl-processor", &options)
             .map_err(|_| "err creating AudioWorkletNode")?;
+
+        let on_adl_end_clone = self.on_adl_end.clone();
+        let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+            move |event: web_sys::MessageEvent| {
+                let data = event.data();
+                if let Some(cmd) = data.as_string() {
+                    if cmd == "adl_finished" {
+                        if let Some(mut cb) = on_adl_end_clone.borrow_mut().take() {
+                            cb()
+                        }
+                    }
+                }
+            },
+        );
+        node.port()
+            .unwrap()
+            .set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+        on_message.forget();
+
         node.connect_with_audio_node(&self.audio_ctx.destination())
             .map_err(|_| "err connecting with audio node")?;
 
@@ -91,7 +115,11 @@ impl OPL {
         self.send_data_cmd("play_imf", data)
     }
 
-    pub fn play_adl(&mut self, sound: AdlSound) -> Result<(), &'static str> {
+    pub fn play_adl<F>(&mut self, sound: AdlSound, on_end: F) -> Result<(), &'static str>
+    where
+        F: FnMut() + 'static,
+    {
+        *self.on_adl_end.borrow_mut() = Some(Box::new(on_end));
         let data = sound.to_vec();
         self.send_data_cmd("play_adl", data)
     }

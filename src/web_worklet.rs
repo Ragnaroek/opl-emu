@@ -225,6 +225,11 @@ pub extern "C" fn play_adl(g: *mut OplGenerator, ptr: *const u8, len: usize) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn is_adl_playing(g: *mut OplGenerator) -> bool {
+    unsafe { (*g).adl_state.is_some() }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn write_reg(g: *mut OplGenerator, reg: u32, val: u8) {
     unsafe { (*g).chip.write_reg(reg, val) }
 }

@@ -1,3 +1,5 @@
+use std::cell::Cell;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
 
@@ -8,13 +10,15 @@ const TARGET_SAMPLE_RATE: f32 = 44100.0;
 const PLAYBACK_RATE: f32 = SOURCE_SAMPLE_RATE / TARGET_SAMPLE_RATE;
 
 #[wasm_bindgen]
-pub struct WebControl {
+pub struct WebPlayer {
     opl: OPL,
     digi_context: AudioContext,
+
+    adl_playing: Rc<Cell<bool>>,
 }
 
 #[wasm_bindgen]
-pub async fn init_player() -> Result<WebControl, String> {
+pub async fn init_player() -> Result<WebPlayer, String> {
     console_error_panic_hook::set_once();
 
     let mut opl = OPL::new().await?;
@@ -26,19 +30,35 @@ pub async fn init_player() -> Result<WebControl, String> {
 
     let digi_context = init_digi_sound_context()?;
 
-    Ok(WebControl { opl, digi_context })
+    Ok(WebPlayer {
+        opl,
+        digi_context,
+        adl_playing: Rc::new(Cell::new(false)),
+    })
 }
 
 #[wasm_bindgen]
-impl WebControl {
+impl WebPlayer {
     pub async fn play_imf(&mut self, track_data: Vec<u8>) {
         self.opl.stop_imf().expect("stop_imf");
         self.opl.play_imf(track_data).expect("play imf")
     }
 
     pub async fn play_adl(&mut self, sound_data: Vec<u8>) {
+        self.adl_playing.set(true);
         let adl = AdlSound::from_bytes(&sound_data);
-        self.opl.play_adl(adl).expect("play adl");
+        let adl_playing_clone = self.adl_playing.clone();
+        self.opl
+            .play_adl(adl, move || {
+                adl_playing_clone.set(false);
+            })
+            .expect("play adl");
+    }
+
+    pub async fn wait_for_adl_end(&self) {
+        while self.adl_playing.get() {
+            sleep(3).await;
+        }
     }
 
     pub async fn play_digi(&mut self, digi_data: Vec<u8>) {
@@ -78,4 +98,14 @@ fn init_digi_sound_context() -> Result<AudioContext, String> {
     let ctx =
         AudioContext::new_with_context_options(&opts).map_err(|_| "digi audio context init")?;
     Ok(ctx)
+}
+
+async fn sleep(millis: u32) {
+    let mut cb = |resolve: js_sys::Function, _reject: js_sys::Function| {
+        let win = web_sys::window().expect("web_sys window");
+        win.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, millis as i32)
+            .expect("timeout set");
+    };
+    let p = js_sys::Promise::new(&mut cb);
+    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
 }

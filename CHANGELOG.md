@@ -4,6 +4,12 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 # [Unreleased]
 
+# [0.4.2]
+- adl finish detection
+
+# [0.4.x]
+- web support
+
 # [0.2.8]
 - dependency update (especially SDL 0.38.0)
 
